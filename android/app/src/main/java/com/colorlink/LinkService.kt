@@ -20,10 +20,12 @@ private const val TAG = "ColorLink.Service"
 class LinkService : Service() {
 
     companion object {
+        /** 现在需不需要前台服务：有 Mac 连着、用户要求常驻、或者没有通知监听保活。 */
+        fun needed(ctx: Context) = EventBus.count > 0 || Prefs.keepAlive(ctx) || !NotifyListener.connected
+
         /** 根据当前状态启动或停止前台服务。随时可以调用。 */
         fun refresh(ctx: Context) {
-            val needed = EventBus.count > 0 || Prefs.keepAlive(ctx) || !NotifyListener.connected
-            if (needed) {
+            if (needed(ctx)) {
                 try {
                     ctx.startForegroundService(Intent(ctx, LinkService::class.java))
                 } catch (e: Exception) {
@@ -52,6 +54,11 @@ class LinkService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         show()
+        // 兜底：启动请求发出后情况可能已经变了（例如通知监听刚绑定好），不需要就自己退出
+        if (!needed(this)) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         // 只有用户要求常驻时，被系统杀掉后才自动重启
         return if (Prefs.keepAlive(this)) START_STICKY else START_NOT_STICKY
     }
