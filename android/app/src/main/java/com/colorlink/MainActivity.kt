@@ -49,7 +49,16 @@ class MainActivity : Activity() {
     private lateinit var statusDot: View
     private lateinit var logo: LinkLogoView
     private var logoConnected: Boolean? = null
-    private lateinit var hero: android.widget.FrameLayout
+    /** 滚动内容里给大标志占位的第一屏 */
+    private lateinit var heroSpace: android.widget.FrameLayout
+    /** 末尾留白：内容不够长时补足，保证设置能一直滑到顶部背景条下面 */
+    private lateinit var tailSpace: View
+    /** 浮在最上层的标志（链环 + 名字），随滚动缩小并停到顶部正中 */
+    private lateinit var header: LinearLayout
+    private lateinit var nameRow: View
+    private lateinit var topBar: View
+    private lateinit var scroll: ScrollView
+    private var insetTop = 0
     private lateinit var runText: TextView
     private lateinit var codeText: TextView
     /** 运行条件：只显示不满足的项，全部满足时整块隐藏 */
@@ -95,10 +104,10 @@ class MainActivity : Activity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(24))
+            setPadding(dp(16), 0, dp(16), dp(24))
         }
-        hero = hero()
-        root.addView(hero)
+        heroSpace = heroSpace()
+        root.addView(heroSpace)
         codeCard = codeCard()
         root.addView(codeCard)
         conditionsTitle = sectionTitle("需要处理")
@@ -107,28 +116,59 @@ class MainActivity : Activity() {
         root.addView(conditionsCard)
         root.addView(sectionTitle("设置"))
         root.addView(settingsCard())
+        tailSpace = View(this)
+        root.addView(tailSpace, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0))
 
-        val scroll = ScrollView(this).apply {
-            setBackgroundColor(bg)
+        scroll = ScrollView(this).apply {
             isFillViewport = true
+            isVerticalScrollBarEnabled = false
             addView(root)
+            setOnScrollChangeListener { _, _, _, _, _ -> layoutHeader() }
+        }
+        topBar = View(this).apply {
+            background = GradientDrawable().apply { setColor(bg) }
+            alpha = 0f
+            elevation = dp(1).toFloat()
+        }
+        header = header().apply {
+            alpha = 0f // 首次摆好位置前先隐藏，免得闪一下左上角
+            elevation = dp(2).toFloat() // 要高于顶部背景条（它有 1dp 阴影），否则会被盖住
+            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> layoutHeader() }
+        }
+        val screen = android.widget.FrameLayout(this).apply {
+            setBackgroundColor(bg)
+            addView(scroll)
+            addView(topBar, android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
+            addView(header, android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ))
             // Android 15 起强制全面屏：内容避开状态栏和导航栏
-            setOnApplyWindowInsetsListener { v, insets ->
+            setOnApplyWindowInsetsListener { _, insets ->
                 val bars = insets.getInsets(WindowInsets.Type.systemBars())
-                v.setPadding(0, bars.top, 0, bars.bottom)
+                insetTop = bars.top
+                scroll.setPadding(0, bars.top, 0, bars.bottom)
+                topBar.layoutParams = topBar.layoutParams.apply { height = bars.top + dp(56) }
                 insets
             }
         }
         // 开关、勾选框抢到焦点时 ScrollView 会自动滚过去；让容器先拿焦点，打开时停在顶部
         root.isFocusableInTouchMode = true
         root.requestFocus()
-        setContentView(scroll)
-        // 状态区占满第一屏，其余内容往下滑才看到
+        setContentView(screen)
+        // 第一屏给大标志占位，其余内容往下滑才看到
         scroll.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
-            val h = v.height - v.paddingTop - v.paddingBottom - root.paddingTop
-            if (h > 0 && hero.layoutParams.height != h) {
-                hero.layoutParams = hero.layoutParams.apply { height = h }
+            val h = v.height - v.paddingTop - v.paddingBottom
+            if (h > 0 && heroSpace.layoutParams.height != h) {
+                heroSpace.layoutParams = heroSpace.layoutParams.apply { height = h }
             }
+            if (h > 0) {
+                val content = root.height - heroSpace.height - tailSpace.height
+                val tail = (h - dp(56) - content).coerceAtLeast(0)
+                if (tailSpace.layoutParams.height != tail) {
+                    tailSpace.layoutParams = tailSpace.layoutParams.apply { height = tail }
+                }
+            }
+            layoutHeader()
         }
         startAll()
     }
@@ -154,33 +194,61 @@ class MainActivity : Activity() {
     // region 卡片
 
     /** 第一屏：正中间是图标、名字和状态小灯（绿：已连接；灰：待命中；红：没在运行），底部一个下滑提示 */
-    private fun hero() = android.widget.FrameLayout(this).apply {
+    /** 第一屏占位：只有底部一个下滑提示，大标志本身浮在上层 */
+    private fun heroSpace() = android.widget.FrameLayout(this).apply {
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(560))
-        addView(LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            // 只画链环本身，不加图标底板，直接融在背景里
-            logo = LinkLogoView(context).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(140), dp(140)).apply { bottomMargin = dp(8) }
-            }
-            addView(logo)
-            addView(LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                // 默认会跟随父容器（按图标宽度算）而被截断，明确按内容自适应
-                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                addView(label("ColorLink", 26f, primary, bold = true))
-                statusDot = View(context).apply {
-                    layoutParams = LinearLayout.LayoutParams(dp(10), dp(10)).apply { marginStart = dp(10) }
-                }
-                addView(statusDot)
-            })
-        }, android.widget.FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER,
-        ))
         addView(label("⌄", 22f, secondary).apply { gravity = Gravity.CENTER }, android.widget.FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
         ).apply { bottomMargin = dp(8) })
+    }
+
+    /** 浮层标志：链环（不加底板，融在背景里）+ 名字和状态小灯 */
+    private fun header() = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER_HORIZONTAL
+        logo = LinkLogoView(context).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(LOGO_DP), dp(LOGO_DP)).apply { bottomMargin = dp(8) }
+        }
+        addView(logo)
+        nameRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            // 默认会跟随父容器（按图标宽度算）而被截断，明确按内容自适应
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            addView(label("ColorLink", 26f, primary, bold = true))
+            statusDot = View(context).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(10), dp(10)).apply { marginStart = dp(10) }
+            }
+            addView(statusDot)
+        }
+        addView(nameRow)
+    }
+
+    /**
+     * 按滚动进度摆放浮层标志：f = 0 时大标志在第一屏正中，f = 1 时缩成 40dp 的小链环停在顶部正中。
+     * 名字先淡出，顶部背景条在快收起时淡入。只改平移、缩放和透明度，不触发重新布局。
+     */
+    private fun layoutHeader() {
+        val viewport = scroll.height - scroll.paddingTop - scroll.paddingBottom
+        if (viewport <= 0 || header.width == 0) return
+        val collapsedLogo = dp(40).toFloat()
+        val minScale = collapsedLogo / dp(LOGO_DP)
+        val expandedTop = insetTop + (viewport - header.height) / 2f
+        val collapsedTop = insetTop + (dp(56) - collapsedLogo) / 2f
+        val distance = (expandedTop - collapsedTop) * 1.4f
+        val f = (scroll.scrollY / distance).coerceIn(0f, 1f)
+        val e = f * f * (3 - 2 * f) // 缓入缓出
+
+        header.alpha = 1f
+        header.pivotX = header.width / 2f
+        header.pivotY = 0f
+        header.translationX = (scroll.width - header.width) / 2f
+        header.translationY = expandedTop + (collapsedTop - expandedTop) * e
+        val s = 1f + (minScale - 1f) * e
+        header.scaleX = s
+        header.scaleY = s
+        nameRow.alpha = (1f - f * 2.5f).coerceIn(0f, 1f)
+        topBar.alpha = ((f - 0.6f) / 0.4f).coerceIn(0f, 1f)
     }
 
     private fun codeCard() = card().apply {
@@ -248,10 +316,15 @@ class MainActivity : Activity() {
         val connected = EventBus.count > 0
         val running = LinkCore.running
         statusDot.background = dot(if (connected) green else if (running) secondary else red, size = 10)
-        // 连上时链环长出并扣合；没连接时是静止的灰色链环
+        // 连上时链环长出并扣合；断开时解扣分开；没连接时是分开的灰色链环
         if (connected != logoConnected) {
+            val wasConnected = logoConnected == true
             logoConnected = connected
-            if (connected) logo.playConnect() else logo.showIdle()
+            when {
+                connected -> logo.playConnect()
+                wasConnected -> logo.playDisconnect() // 正看着页面时断开：解扣、分开、变灰
+                else -> logo.showIdle()
+            }
         }
         statusDot.contentDescription = when {
             connected -> "已连接 ${LinkCore.macName ?: "Mac"}"
@@ -427,4 +500,8 @@ class MainActivity : Activity() {
     }
 
     // endregion
+
+    private companion object {
+        const val LOGO_DP = 140
+    }
 }
