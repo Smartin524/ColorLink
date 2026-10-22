@@ -23,7 +23,7 @@ import kotlin.math.sin
  * 首页的链环标志，用代码实时绘制（几何和 tools/make-icons.swift 一致，扣合状态就是图标本身）。
  *
  * - 连上：两个灰环摆回一条斜线并拢，颜色沿轮廓长满（蓝环先、青环紧跟）→ 交叉处细缝张开、扣在一起 → 轻轻回弹
- * - 断开：细缝合上（解扣）→ 两个环各自转开，摆成「八」字（左环朝右上、右环朝左上），颜色沿轮廓退回成灰色
+ * - 断开：细缝合上（解扣）→ 两个环各自转开、一低一高随意地摆着（不对称），颜色沿轮廓退回成灰色
  * - 两种动画都从当前画面出发：播到一半状态变了，就从那一帧接着往回走，不会跳回开头重播
  *
  * 只在动画播放的一秒多里逐帧重绘，静止时不耗电。
@@ -46,14 +46,15 @@ class LinkLogoView(context: Context) : View(context) {
     private val crossBottom = Path().apply { addCircle(512f, 616f, crossingRadius, Path.Direction.CW) }
 
     /**
-     * 每个环的姿态（相对标志中心，1024 单位）：扣合时整条链斜 45°；断开时摆成「八」字。
-     * 左环 -45° → -60°（更竖，朝右上）；右环 -45° → -120°（朝左上），两环都逆时针转，像松开的样子。
+     * 每个环的姿态（相对标志中心，1024 单位）：扣合时整条链斜 45°；断开时一低一高、不对称地散开。
+     * 左环 -45° → -55°，留在左下；右环 -45° → -100°（几乎竖直、略朝左上），留在右上。两环都逆时针转，像松开的样子。
+     * Mac 状态栏（BrandIcon.swift）的断开图标用的是同一组姿态。
      */
     private class Pose(val x: Float, val y: Float, val angle: Float)
     private val linkedA = Pose(-113.1f, 113.1f, -45f)
     private val linkedB = Pose(113.1f, -113.1f, -45f)
-    private val apartA = Pose(-220f, 0f, -60f)
-    private val apartB = Pose(220f, 0f, -120f)
+    private val apartA = Pose(-185f, 100f, -55f)
+    private val apartB = Pose(190f, -105f, -100f)
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -73,7 +74,7 @@ class LinkLogoView(context: Context) : View(context) {
     private var colorA = 0f // 蓝环沿轮廓上色的比例：0 全灰，1 全彩
     private var colorB = 0f
     private var lock = 0f // 交叉处细缝张开的程度：0 未扣合，1 扣合
-    private var apart = 1f // 0 扣合的斜线姿态，1 「八」字姿态
+    private var apart = 1f // 0 扣合的斜线姿态，1 散开的姿态
     private var bounce = 1f
 
     private var animator: ValueAnimator? = null
@@ -100,7 +101,7 @@ class LinkLogoView(context: Context) : View(context) {
         }
     }
 
-    /** 断开：先解扣，再转开成「八」字，颜色沿轮廓退回成灰色。同样从当前画面出发 */
+    /** 断开：先解扣，再转开散成一低一高，颜色沿轮廓退回成灰色。同样从当前画面出发 */
     fun playDisconnect() {
         val a0 = apart; val cA0 = colorA; val cB0 = colorB; val l0 = lock; val b0 = bounce
         val unlatch = 260f * l0
@@ -122,7 +123,7 @@ class LinkLogoView(context: Context) : View(context) {
         invalidate()
     }
 
-    /** 待命：静止的「八」字灰色链环 */
+    /** 待命：静止的、散开的灰色链环 */
     fun showIdle() {
         animator?.cancel()
         colorA = 0f; colorB = 0f; lock = 0f; apart = 1f; bounce = 1f
@@ -168,7 +169,7 @@ class LinkLogoView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         val side = minOf(width, height).toFloat()
-        // 扣合时链环约占 760 单位；「八」字更宽一些（约 840），略微缩小以免出界
+        // 扣合时链环约占 760 单位；散开时更大一些，略微缩小以免出界
         val scale = side / 760f * bounce * (1f - 0.1f * apart)
         canvas.save()
         canvas.translate(width / 2f, height / 2f)
@@ -183,7 +184,7 @@ class LinkLogoView(context: Context) : View(context) {
         canvas.restore()
     }
 
-    /** 把 1024 画布里以 (cx, 512) 为中心的环，摆到扣合 / 「八」字之间的姿态 */
+    /** 把 1024 画布里以 (cx, 512) 为中心的环，摆到扣合 / 散开之间的姿态 */
     private fun pose(m: Matrix, cx: Float, linked: Pose, spread: Pose) {
         val t = apart
         m.reset()
