@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- ColorLink 双丝带标志的单色版（design/icon/前景.svg），用作通知栏小图标。
-     通知栏图标只认透明度，两条丝带用不同透明度区分 -->
+<!-- ColorLink 链环的单色版（几何同 tools/make-icons.swift），用作通知栏小图标和主题图标 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
@@ -8,15 +7,17 @@
     android:viewportHeight="1024">
     <group
         android:pivotX="512"
-        android:pivotY="510"
-        android:scaleX="1.16"
-        android:scaleY="1.16">
+        android:pivotY="512"
+        android:rotation="-45">
         <path
-            android:fillAlpha="0.55"
-            android:fillColor="#FFFFFFFF"
-            android:pathData="M408 222 H615 C644 222 670 238 686 266 L802 466 C819 495 819 524 802 554 L686 754 C670 782 644 798 615 798 H408 C437 798 465 782 481 754 L593 558 C610 529 610 494 593 465 L512 325 L545 267 C561 239 588 222 615 222 Z" />
+            android:fillColor="#00000000"
+            android:pathData="M252 392 H452 A120 120 0 0 1 452 632 H252 A120 120 0 0 1 252 392 Z"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="64" />
         <path
-            android:fillColor="#FFFFFFFF"
-            android:pathData="M408 222 C378 222 352 238 336 266 L222 465 C206 494 206 525 222 554 L336 754 C352 782 378 798 408 798 C438 798 465 782 481 754 L512 696 L431 556 C415 528 415 496 431 467 L545 267 C562 238 588 222 615 222 Z" />
+            android:fillColor="#00000000"
+            android:pathData="M572 392 H772 A120 120 0 0 1 772 632 H572 A120 120 0 0 1 572 392 Z"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="64" />
     </group>
 </vector>
