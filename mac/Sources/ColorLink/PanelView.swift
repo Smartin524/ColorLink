@@ -36,16 +36,26 @@ struct PanelView: View {
                 Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 4)
-            if !ui.dropMode { moreMenu }
+            if !ui.dropMode {
+                if link.isConnected {
+                    Button {
+                        close()
+                        Windows.shared.showGallery()
+                    } label: {
+                        Image(systemName: "photo.on.rectangle")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("打开相册")
+                }
+                moreMenu
+            }
         }
     }
 
     private var moreMenu: some View {
         Menu {
-            if link.isConnected {
-                Button("打开相册") { close(); Windows.shared.showGallery() }
-                Divider()
-            }
             Toggle("截图自动复制到剪贴板", isOn: $link.autoCopyScreenshots)
             Toggle("同步短信", isOn: $link.mirrorNotifications)
             Toggle("短信验证码自动复制", isOn: $link.autoCopyCodes)
