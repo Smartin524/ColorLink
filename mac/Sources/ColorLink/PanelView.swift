@@ -43,10 +43,10 @@ struct PanelView: View {
                         Windows.shared.showGallery()
                     } label: {
                         Image(systemName: "photo.on.rectangle")
-                            .font(.body)
-                            .foregroundStyle(.primary)
+                            .frame(width: 28, height: 28)
+                            .glassEffect(.regular.interactive(), in: .circle)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.plain)
                     .help("打开相册")
                 }
                 moreMenu
@@ -54,28 +54,39 @@ struct PanelView: View {
         }
     }
 
+    /// 「⋯」：和相册按钮同款的玻璃圆形按钮，点击弹出系统原生菜单
+    /// （SwiftUI 的 Menu 会剥掉标签上的玻璃效果，所以不用它）
     private var moreMenu: some View {
-        Menu {
-            Toggle("截图自动复制到剪贴板", isOn: $link.autoCopyScreenshots)
-            Toggle("同步短信", isOn: $link.mirrorNotifications)
-            Toggle("短信验证码自动复制", isOn: $link.autoCopyCodes)
-                .disabled(!link.mirrorNotifications)
-            Divider()
-            Button("配对手机…") { close(); Windows.shared.showPair() }
-            if link.device != nil {
-                Button("取消配对") { link.forget() }
-            }
-            Divider()
-            Button("导出诊断日志") { close(); Task { await link.exportDiagnostics() } }
-            Button("退出 ColorLink") { NSApp.terminate(nil) }
-        } label: {
-            Image(systemName: "ellipsis.circle")
-                .font(.body)
-                .foregroundStyle(.primary)
+        Button(action: showMoreMenu) {
+            Image(systemName: "ellipsis")
+                .frame(width: 28, height: 28)
+                .glassEffect(.regular.interactive(), in: .circle)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
+        .buttonStyle(.plain)
+        .help("更多")
+    }
+
+    private func showMoreMenu() {
+        let menu = NSMenu()
+        func toggle(_ title: String, _ on: Bool, enabled: Bool = true, _ set: @escaping (Bool) -> Void) {
+            let item = ClosureMenuItem(title: title) { set(!on) }
+            item.state = on ? .on : .off
+            item.isEnabled = enabled
+            menu.addItem(item)
+        }
+        menu.autoenablesItems = false
+        toggle("截图自动复制到剪贴板", link.autoCopyScreenshots) { link.autoCopyScreenshots = $0 }
+        toggle("同步短信", link.mirrorNotifications) { link.mirrorNotifications = $0 }
+        toggle("短信验证码自动复制", link.autoCopyCodes, enabled: link.mirrorNotifications) { link.autoCopyCodes = $0 }
+        menu.addItem(.separator())
+        menu.addItem(ClosureMenuItem(title: "配对手机…") { close(); Windows.shared.showPair() })
+        if link.device != nil {
+            menu.addItem(ClosureMenuItem(title: "取消配对") { link.forget() })
+        }
+        menu.addItem(.separator())
+        menu.addItem(ClosureMenuItem(title: "导出诊断日志") { close(); Task { await link.exportDiagnostics() } })
+        menu.addItem(ClosureMenuItem(title: "退出 ColorLink") { NSApp.terminate(nil) })
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
     }
 
     private var title: String {
@@ -95,7 +106,7 @@ struct PanelView: View {
         case .connecting: return "马上就好"
         case .connected:
             guard let i = link.info, let b = i.battery else { return "已连接" }
-            return "已连接 · 电量 \(b)%\(i.charging == true ? " · 充电中" : "")"
+            return "已连接 · \(b)%\(i.charging == true ? " · 充电中" : "")"
         case .retrying: return "自动重连中…"
         }
     }

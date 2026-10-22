@@ -4,7 +4,7 @@ import SwiftUI
 
 /// 手机相册：照片 / 视频按日期分组成网格，录音是列表。
 ///
-/// 交互：左键单击弹出操作菜单；⌘ 单击加选 / 取消，⇧ 单击连续选择；⌘A 全选，Esc 取消。
+/// 交互：左键单击弹出操作菜单；⌘ 单击加选 / 取消，⇧ 单击连续选择；拖动框选；点空白处、Esc 取消；⌘A 全选。
 /// 选中多项时点其中一张，菜单作用于全部选中项。右键菜单同样可用。
 struct GalleryView: View {
     @EnvironmentObject var link: LinkController
@@ -17,6 +17,10 @@ struct GalleryView: View {
     @State private var selection = Set<MediaItem.ID>()
     /// ⇧ 连续选择的起点
     @State private var anchor: MediaItem.ID?
+    /// 框选：各缩略图在网格里的位置、当前选框、开始框选前已有的选择
+    @State private var frames: [MediaItem.ID: CGRect] = [:]
+    @State private var band: CGRect?
+    @State private var bandBase = Set<MediaItem.ID>()
 
     private let pageSize = 200
 
@@ -76,6 +80,7 @@ struct GalleryView: View {
     }
 
     private var grid: some View {
+        GeometryReader { viewport in
         ScrollView {
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 4)],
@@ -87,6 +92,9 @@ struct GalleryView: View {
                     Section {
                         ForEach(section.items) { item in
                             ThumbCell(item: item, selected: selection.contains(item.id))
+                                .background(GeometryReader { g in
+                                    Color.clear.preference(key: CellFrames.self, value: [item.id: g.frame(in: .named("grid"))])
+                                })
                                 .onTapGesture { click(item) }
                                 .contextMenu { contextMenu(for: item) }
                                 .onAppear { if item == items.last { Task { await loadMore() } } }
@@ -105,6 +113,29 @@ struct GalleryView: View {
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 12)
+            // 撑满可见区域，这样下方空白也能点、也能从那里开始框选
+            .frame(maxWidth: .infinity, minHeight: viewport.size.height, alignment: .top)
+            .background(
+                // 点空白处取消选择（点在缩略图上的点击由缩略图自己处理）
+                Color.clear.contentShape(Rectangle()).onTapGesture {
+                    selection.removeAll()
+                    anchor = nil
+                }
+            )
+            .overlay(alignment: .topLeading) {
+                if let r = band {
+                    Rectangle()
+                        .fill(Color.accentColor.opacity(0.15))
+                        .overlay(Rectangle().strokeBorder(Color.accentColor.opacity(0.8), lineWidth: 1))
+                        .frame(width: r.width, height: r.height)
+                        .offset(x: r.minX, y: r.minY)
+                        .allowsHitTesting(false)
+                }
+            }
+            .coordinateSpace(.named("grid"))
+            .onPreferenceChange(CellFrames.self) { frames = $0 }
+            .simultaneousGesture(rubberBand)
+        }
         }
         .scrollEdgeEffectStyle(.soft, for: .top)
         .focusable()
@@ -138,6 +169,26 @@ struct GalleryView: View {
     }
 
     // MARK: - 点击与选择
+
+    /// 拖动框选：框到的缩略图都选中；按住 ⌘ / ⇧ 是在原有选择上追加
+    private var rubberBand: some Gesture {
+        DragGesture(minimumDistance: 6, coordinateSpace: .named("grid"))
+            .onChanged { v in
+                if band == nil {
+                    let mods = NSEvent.modifierFlags
+                    bandBase = mods.contains(.command) || mods.contains(.shift) ? selection : []
+                }
+                let r = CGRect(
+                    x: min(v.startLocation.x, v.location.x), y: min(v.startLocation.y, v.location.y),
+                    width: abs(v.location.x - v.startLocation.x), height: abs(v.location.y - v.startLocation.y)
+                )
+                band = r
+                selection = bandBase.union(frames.filter { $0.value.intersects(r) }.map(\.key))
+            }
+            .onEnded { _ in
+                band = nil
+            }
+    }
 
     private func click(_ item: MediaItem) {
         let mods = NSEvent.modifierFlags
@@ -297,6 +348,14 @@ struct GalleryView: View {
             }
             if reveal, !saved.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(saved) }
         }
+    }
+}
+
+/// 缩略图在网格坐标系里的位置，框选时用来判断框到了哪些
+private struct CellFrames: PreferenceKey {
+    static var defaultValue: [MediaItem.ID: CGRect] = [:]
+    static func reduce(value: inout [MediaItem.ID: CGRect], nextValue: () -> [MediaItem.ID: CGRect]) {
+        value.merge(nextValue()) { $1 }
     }
 }
 
