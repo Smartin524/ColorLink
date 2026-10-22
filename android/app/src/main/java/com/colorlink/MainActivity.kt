@@ -31,7 +31,7 @@ import android.widget.Toast
 
 /**
  * 设置页：卡片式，只放状态和开关，不放说明文字（排查靠日志）。
- * - 第一屏：正中间是图标、名字和状态小灯，其余往下滑
+ * - 展开：正中间是链环、名字和状态小灯；点下方「⌄」收起露出设置，在设置顶部下拉恢复
  * - 需要处理：只列出不满足的条件（权限给过一次就稳定，不必常驻），全部满足时整块隐藏
  * - 配对码：只在配对新电脑时需要，配对过之后收起
  * - 空闲保活开关、配对新电脑、取消所有配对
@@ -49,16 +49,20 @@ class MainActivity : Activity() {
     private lateinit var statusDot: View
     private lateinit var logo: LinkLogoView
     private var logoConnected: Boolean? = null
-    /** 滚动内容里给大标志占位的第一屏 */
-    private lateinit var heroSpace: android.widget.FrameLayout
-    /** 末尾留白：内容不够长时补足，保证设置能一直滑到顶部背景条下面 */
-    private lateinit var tailSpace: View
-    /** 浮在最上层的标志（链环 + 名字），随滚动缩小并停到顶部正中 */
+    /** 浮在最上层的标志（链环 + 名字）：展开时在屏幕正中，收起时缩到顶部正中 */
     private lateinit var header: LinearLayout
     private lateinit var nameRow: View
     private lateinit var topBar: View
     private lateinit var scroll: ScrollView
     private var insetTop = 0
+    private var insetBottom = 0
+    /** 收起按钮（大链环下方的「⌄」） */
+    private lateinit var collapseButton: View
+    /** 0 = 展开（大链环），1 = 收起（小链环在顶部，设置卡片可见） */
+    private var collapse = 0f
+    private var collapseAnimator: android.animation.ValueAnimator? = null
+    private var touchDownY = 0f
+    private var pulling = false
     private lateinit var runText: TextView
     private lateinit var codeText: TextView
     /** 运行条件：只显示不满足的项，全部满足时整块隐藏 */
@@ -106,8 +110,6 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), 0, dp(16), dp(24))
         }
-        heroSpace = heroSpace()
-        root.addView(heroSpace)
         codeCard = codeCard()
         root.addView(codeCard)
         conditionsTitle = sectionTitle("需要处理")
@@ -115,25 +117,11 @@ class MainActivity : Activity() {
         conditionsCard = conditionsCard()
         root.addView(conditionsCard)
         root.addView(settingsCard())
-        tailSpace = View(this)
-        root.addView(tailSpace, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0))
 
         scroll = ScrollView(this).apply {
-            isFillViewport = true
             isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
             addView(root)
-            setOnScrollChangeListener { _, _, y, _, oldY ->
-                if (y != oldY) lastScrollDown = y > oldY
-                layoutHeader()
-            }
-            // 松手后吸附：不停在中间露出一大段空白
-            setOnTouchListener { _, e ->
-                if (e.actionMasked == android.view.MotionEvent.ACTION_UP || e.actionMasked == android.view.MotionEvent.ACTION_CANCEL) {
-                    handler.removeCallbacks(snapCheck)
-                    handler.postDelayed(snapCheck, 80)
-                }
-                false
-            }
         }
         topBar = View(this).apply {
             background = GradientDrawable().apply { setColor(bg) }
@@ -141,8 +129,9 @@ class MainActivity : Activity() {
         }
         header = header().apply {
             alpha = 0f // 首次摆好位置前先隐藏，免得闪一下左上角
-            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> layoutHeader() }
+            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> applyCollapse() }
         }
+        collapseButton = collapseButton()
         val screen = android.widget.FrameLayout(this).apply {
             setBackgroundColor(bg)
             addView(scroll)
@@ -150,34 +139,24 @@ class MainActivity : Activity() {
             addView(header, android.widget.FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
             ))
+            addView(collapseButton, android.widget.FrameLayout.LayoutParams(dp(48), dp(48), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
             // Android 15 起强制全面屏：内容避开状态栏和导航栏
             setOnApplyWindowInsetsListener { _, insets ->
                 val bars = insets.getInsets(WindowInsets.Type.systemBars())
                 insetTop = bars.top
-                scroll.setPadding(0, bars.top, 0, bars.bottom)
+                insetBottom = bars.bottom
+                scroll.setPadding(0, bars.top + dp(64), 0, bars.bottom)
                 topBar.layoutParams = topBar.layoutParams.apply { height = bars.top + dp(56) }
+                collapseButton.layoutParams = (collapseButton.layoutParams as android.widget.FrameLayout.LayoutParams)
+                    .apply { bottomMargin = bars.bottom + dp(28) }
                 insets
             }
+            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> applyCollapse() }
         }
-        // 开关、勾选框抢到焦点时 ScrollView 会自动滚过去；让容器先拿焦点，打开时停在顶部
+        // 开关、勾选框抢到焦点时 ScrollView 会自动滚过去；让容器先拿焦点
         root.isFocusableInTouchMode = true
         root.requestFocus()
         setContentView(screen)
-        // 第一屏给大标志占位，其余内容往下滑才看到
-        scroll.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
-            val h = v.height - v.paddingTop - v.paddingBottom
-            if (h > 0 && heroSpace.layoutParams.height != h) {
-                heroSpace.layoutParams = heroSpace.layoutParams.apply { height = h }
-            }
-            if (h > 0) {
-                val content = root.height - heroSpace.height - tailSpace.height
-                val tail = (h - dp(64) - content).coerceAtLeast(0)
-                if (tailSpace.layoutParams.height != tail) {
-                    tailSpace.layoutParams = tailSpace.layoutParams.apply { height = tail }
-                }
-            }
-            layoutHeader()
-        }
         startAll()
     }
 
@@ -201,12 +180,18 @@ class MainActivity : Activity() {
     // region 卡片
 
     /** 第一屏：正中间是图标、名字和状态小灯（绿：已连接；灰：待命中；红：没在运行），底部一个下滑提示 */
-    /** 第一屏占位：只有底部一个下滑提示，大标志本身浮在上层 */
-    private fun heroSpace() = android.widget.FrameLayout(this).apply {
-        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(560))
-        addView(label("⌄", 22f, secondary).apply { gravity = Gravity.CENTER }, android.widget.FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
-        ).apply { bottomMargin = dp(8) })
+    /** 大链环下方的收起按钮：点一下收起，露出设置 */
+    private fun collapseButton() = android.widget.FrameLayout(this).apply {
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(card)
+        }
+        foreground = rippleBackground()
+        elevation = 0f
+        contentDescription = "显示设置"
+        addView(label("⌄", 24f, secondary).apply { gravity = Gravity.CENTER },
+            android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        setOnClickListener { animateCollapse(1f) }
     }
 
     /** 浮层标志：链环（不加底板，融在背景里）+ 名字和状态小灯 */
@@ -232,51 +217,81 @@ class MainActivity : Activity() {
     }
 
     /**
-     * 按滚动进度摆放浮层标志：f = 0 时大标志在第一屏正中，f = 1 时缩成 40dp 的小链环停在顶部正中。
-     * 名字先淡出，顶部背景条在快收起时淡入。只改平移、缩放和透明度，不触发重新布局。
+     * 按收起进度摆放：collapse = 0 时大标志在屏幕正中、设置在屏幕外；collapse = 1 时标志缩成 40dp 停在顶部正中，
+     * 设置卡片升到顶部背景条下方。只改平移、缩放和透明度，不触发重新布局。
      */
-    /** 收起位置：第一张卡片正好贴在顶部背景条下方 */
-    private fun collapseTarget() = (heroSpace.height - dp(64)).coerceAtLeast(0)
-
-    private var lastScrollDown = true
-
-    /** 等滚动停下后再吸附（惯性滑动期间不打断） */
-    private val snapCheck = object : Runnable {
-        private var last = -1
-        override fun run() {
-            val y = scroll.scrollY
-            if (y != last) {
-                last = y
-                handler.postDelayed(this, 80)
-                return
-            }
-            last = -1
-            val target = collapseTarget()
-            if (y in 1 until target) scroll.smoothScrollTo(0, if (lastScrollDown) target else 0)
-        }
-    }
-
-    private fun layoutHeader() {
-        val viewport = scroll.height - scroll.paddingTop - scroll.paddingBottom
-        if (viewport <= 0 || header.width == 0) return
+    private fun applyCollapse() {
+        val screenH = (scroll.parent as View).height
+        if (screenH == 0 || header.width == 0) return
+        val c = collapse
+        val e = c * c * (3 - 2 * c)
         val collapsedLogo = dp(40).toFloat()
         val minScale = collapsedLogo / dp(LOGO_DP)
-        val expandedTop = insetTop + (viewport - header.height) / 2f
+        val expandedTop = insetTop + (screenH - insetTop - insetBottom - header.height) / 2f
         val collapsedTop = insetTop + (dp(56) - collapsedLogo) / 2f
-        val distance = collapseTarget().toFloat().coerceAtLeast(1f)
-        val f = (scroll.scrollY / distance).coerceIn(0f, 1f)
-        val e = f * f * (3 - 2 * f) // 缓入缓出
 
         header.alpha = 1f
         header.pivotX = header.width / 2f
         header.pivotY = 0f
-        header.translationX = (scroll.width - header.width) / 2f
+        header.translationX = ((scroll.parent as View).width - header.width) / 2f
         header.translationY = expandedTop + (collapsedTop - expandedTop) * e
         val s = 1f + (minScale - 1f) * e
         header.scaleX = s
         header.scaleY = s
-        nameRow.alpha = (1f - f * 2.5f).coerceIn(0f, 1f)
-        topBar.alpha = ((f - 0.6f) / 0.4f).coerceIn(0f, 1f)
+        nameRow.alpha = (1f - c * 2.5f).coerceIn(0f, 1f)
+        topBar.alpha = ((c - 0.5f) / 0.5f).coerceIn(0f, 1f)
+        // 设置从屏幕下方升上来
+        scroll.translationY = (1f - e) * screenH * 0.6f
+        scroll.alpha = ((c - 0.15f) / 0.6f).coerceIn(0f, 1f)
+        scroll.visibility = if (c == 0f) View.INVISIBLE else View.VISIBLE
+        collapseButton.alpha = (1f - c * 3f).coerceIn(0f, 1f)
+        collapseButton.visibility = if (c >= 0.34f) View.INVISIBLE else View.VISIBLE
+    }
+
+    /** 收起 / 展开的过渡动画。期间把标志和设置交给 GPU 缓存成纹理，只做变换，不逐帧重绘，避免掉帧 */
+    private fun animateCollapse(target: Float) {
+        if (collapse == target && collapseAnimator?.isRunning != true) return
+        collapseAnimator?.cancel()
+        if (target == 0f) scroll.smoothScrollTo(0, 0)
+        val layers = listOf(header, scroll)
+        collapseAnimator = android.animation.ValueAnimator.ofFloat(collapse, target).apply {
+            duration = 420
+            interpolator = android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)
+            addUpdateListener {
+                collapse = it.animatedValue as Float
+                applyCollapse()
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationStart(a: android.animation.Animator) {
+                    layers.forEach { v -> v.setLayerType(View.LAYER_TYPE_HARDWARE, null) }
+                }
+
+                override fun onAnimationEnd(a: android.animation.Animator) {
+                    layers.forEach { v -> v.setLayerType(View.LAYER_TYPE_NONE, null) }
+                }
+            })
+            start()
+        }
+    }
+
+    /** 收起状态下，在设置列表顶部往下拉 → 恢复大链环 */
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        when (ev.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                touchDownY = ev.rawY
+                pulling = collapse == 1f && scroll.scrollY == 0
+            }
+            android.view.MotionEvent.ACTION_MOVE -> if (pulling && ev.rawY - touchDownY > dp(72)) {
+                pulling = false
+                animateCollapse(0f)
+                // 取消子视图正在处理的触摸，免得同时触发点击
+                val cancel = android.view.MotionEvent.obtain(ev).apply { action = android.view.MotionEvent.ACTION_CANCEL }
+                super.dispatchTouchEvent(cancel)
+                cancel.recycle()
+                return true
+            }
+        }
+        return super.dispatchTouchEvent(ev)
     }
 
     private fun codeCard() = card().apply {
