@@ -2,8 +2,8 @@ import ColorLinkCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// 状态栏面板，只有两块：顶部的连接状态，下面的照片区。
-/// 照片区显示最近三张照片（悬停：上半下载、下半复制），同时也是拖放区：把文件拖上来就发给手机。
+/// 状态栏面板，只有两块：顶部的连接状态，下面的照片区（最近三张，悬停：上半下载、下半复制）。
+/// 拖文件时整个面板都是放置区，松手就发给手机。
 /// 不常用的开关和操作收在右上角「⋯」菜单里。
 struct PanelView: View {
     let close: () -> Void
@@ -11,6 +11,7 @@ struct PanelView: View {
     @EnvironmentObject var ui: PanelState
 
     var body: some View {
+        let dropping = ui.dropMode || ui.dropTargeted || link.transfer != nil
         VStack(alignment: .leading, spacing: 8) {
             header
             if link.isConnected {
@@ -18,11 +19,44 @@ struct PanelView: View {
             }
         }
         .padding(12)
+        .opacity(dropping ? 0.2 : 1)
+        .overlay { if dropping { dropOverlay } }
+        .animation(.easeOut(duration: 0.15), value: dropping)
+        .animation(.easeOut(duration: 0.15), value: ui.dropTargeted)
+        .contentShape(Rectangle())
+        .onDrop(of: [.fileURL, .image], isTargeted: $ui.dropTargeted) { providers in
+            Task { await link.send(await DropFiles.urls(from: providers)) }
+            return true
+        }
         .frame(width: 256)
         .glassEffect(.regular, in: .rect(cornerRadius: 22))
         // 玻璃的高光和阴影会画到形状外面，留一圈透明边距，不然会被窗口边缘裁掉
         .padding(FloatingPanel.margin)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// 拖拽时盖满整个面板的提示；松手即发送
+    private var dropOverlay: some View {
+        let target = ui.dropTargeted
+        return VStack(spacing: 4) {
+            Image(systemName: link.transfer == nil ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
+                .font(.system(size: 24))
+                .symbolEffect(.pulse, isActive: link.transfer != nil)
+            Text(link.transfer ?? (target ? "松手发送到手机" : "拖到这里，发送到手机"))
+                .font(.caption.weight(.semibold))
+        }
+        .foregroundStyle(target ? Color.accentColor : .primary)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(target ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(target ? Color.accentColor : Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+        )
+        .padding(6)
+        .allowsHitTesting(false)
     }
 
     private var header: some View {
@@ -114,13 +148,11 @@ struct PanelView: View {
     }
 }
 
-/// 照片区：最近三张照片 + 拖放发送
+/// 照片区：最近三张照片
 struct PhotoStrip: View {
     @EnvironmentObject var link: LinkController
-    @EnvironmentObject var ui: PanelState
 
     var body: some View {
-        let target = ui.dropTargeted
         HStack(spacing: 6) {
             ForEach(link.recent) { RecentThumb(item: $0) }
             if link.recent.isEmpty {
@@ -128,34 +160,22 @@ struct PhotoStrip: View {
             }
         }
         .padding(5)
-        .opacity(ui.dropMode || target ? 0.35 : 1)
-        .overlay {
-            // 拖拽时在照片上盖一层提示；松手即发送
-            if ui.dropMode || target || link.transfer != nil {
-                VStack(spacing: 4) {
-                    Image(systemName: link.transfer == nil ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
-                        .font(.system(size: 22))
-                        .symbolEffect(.pulse, isActive: link.transfer != nil)
-                    Text(link.transfer ?? (target ? "松手发送到手机" : "拖到这里，发送到手机"))
-                        .font(.caption.weight(.semibold))
-                }
-                .foregroundStyle(target ? Color.accentColor : .primary)
-                .allowsHitTesting(false)
-            }
-        }
-        .background(
-            RoundedRectangle(cornerRadius: 13)
-                .fill(target ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 13)
-                .strokeBorder(target ? Color.accentColor : .clear, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
-        )
-        .animation(.easeOut(duration: 0.15), value: target)
-        .onDrop(of: [.fileURL, .image], isTargeted: $ui.dropTargeted) { providers in
-            Task { await link.send(await DropFiles.urls(from: providers)) }
-            return true
-        }
+        .background(RoundedRectangle(cornerRadius: 13).fill(Color.primary.opacity(0.04)))
+    }
+}
+
+/// 已经下载到这台 Mac 的照片：左上角一个小对勾
+struct DownloadedMark: View {
+    let size: CGFloat
+
+    var body: some View {
+        Image(systemName: "checkmark.circle.fill")
+            .font(.system(size: size, weight: .semibold))
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(.white, .black.opacity(0.45))
+            .shadow(color: .black.opacity(0.3), radius: 1)
+            .padding(4)
+            .help("已下载到这台 Mac")
     }
 }
 
@@ -174,6 +194,9 @@ struct RecentThumb: View {
             .frame(width: 72, height: 72)
             .overlay {
                 if let image { Image(nsImage: image).resizable().scaledToFill() }
+            }
+            .overlay(alignment: .topLeading) {
+                if link.isDownloaded(item) { DownloadedMark(size: 12) }
             }
             .overlay {
                 switch state {

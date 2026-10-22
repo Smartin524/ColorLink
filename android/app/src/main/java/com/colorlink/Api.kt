@@ -42,6 +42,7 @@ class Api(
             "/api/file" -> file(req)
             "/api/events" -> events(req)
             "/api/upload" -> upload(req)
+            "/api/trash" -> trash(req)
             else -> Response.text(404, "not found")
         }
     }
@@ -175,6 +176,23 @@ class Api(
             }
         },
     )
+
+    /**
+     * 移到「最近删除」：POST /api/trash，请求体 {"items":[{"kind":"image","id":123},…]}。
+     * 返回 {"trashed": 已移走数量, "pending": 是否在等手机上确认}。
+     */
+    private fun trash(req: Request): Response {
+        if (req.method != "POST") return Response.text(405, "use POST")
+        val items = JSONObject(req.body.readBytes().decodeToString()).optJSONArray("items")
+            ?: return Response.text(400, "missing items")
+        val targets = (0 until items.length()).mapNotNull { i ->
+            val o = items.getJSONObject(i)
+            MediaRepo.Kind.of(o.optString("kind"))?.let { it to o.getLong("id") }
+        }
+        val (trashed, pending) = media.trash(targets)
+        AppLog.i("ColorLink.Api", "Mac 请求删除 ${targets.size} 项：已移到最近删除 $trashed，等待确认 $pending")
+        return Response.json(JSONObject().put("trashed", trashed).put("pending", pending))
+    }
 
     /** Mac 发来的文件：POST /api/upload?name=文件名&mime=类型&batch=批次&index=序号&count=总数，请求体是文件内容。 */
     private fun upload(req: Request): Response {

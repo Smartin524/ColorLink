@@ -96,6 +96,53 @@ class MediaRepo(private val ctx: Context) {
             if (c.moveToFirst()) toJson(kind, c) else null
         }
 
+    /**
+     * Mac 要删的照片 / 视频：移到「最近删除」（系统回收站，30 天内可恢复），不是彻底删除。
+     * 1. 直接标记（本 App 存的文件可以）；
+     * 2. 不行就发系统的移到回收站请求：用户给过「媒体管理」权限时系统直接通过，不弹确认；
+     * 3. 还是没成功，就发一条通知，用户点一下在系统确认框里确认。
+     * 返回已经移走的数量和是否在等用户确认。
+     */
+    fun trash(targets: List<Pair<Kind, Long>>): Pair<Int, Boolean> {
+        val uris = targets.map { (kind, id) -> ContentUris.withAppendedId(kind.uri, id) }
+        if (uris.isEmpty()) return 0 to false
+        val left = uris.filterNot { uri ->
+            try {
+                cr.update(uri, ContentValues().apply { put(MediaColumns.IS_TRASHED, 1) }, null, null) > 0
+            } catch (_: SecurityException) {
+                false
+            }
+        }
+        if (left.isEmpty()) return uris.size to false
+        val request = MediaStore.createTrashRequest(cr, left, true)
+        if (MediaStore.canManageMedia(ctx)) {
+            try {
+                val options = android.app.ActivityOptions.makeBasic().setPendingIntentBackgroundActivityStartMode(
+                    android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED,
+                ).toBundle()
+                request.send(ctx, 0, null, null, null, null, options)
+            } catch (e: Exception) {
+                AppLog.w(TAG, "发送移到回收站请求失败", e)
+            }
+            // 系统处理是异步的，等它一会儿
+            repeat(15) {
+                if (left.none { !isTrashed(it) }) return uris.size to false
+                Thread.sleep(100)
+            }
+        }
+        val pending = left.count { !isTrashed(it) }
+        if (pending > 0) Notifications.confirmTrash(ctx, request, pending)
+        return uris.size - pending to (pending > 0)
+    }
+
+    private fun isTrashed(uri: Uri): Boolean {
+        val args = Bundle().apply { putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_INCLUDE) }
+        return cr.query(uri, arrayOf(MediaColumns.IS_TRASHED), args, null)?.use { c ->
+            // 查不到（已经被彻底删掉）也算移走了
+            !c.moveToFirst() || c.getInt(0) == 1
+        } ?: true
+    }
+
     fun open(kind: Kind, id: Long): ParcelFileDescriptor? = try {
         cr.openFileDescriptor(ContentUris.withAppendedId(kind.uri, id), "r")
     } catch (e: Exception) {

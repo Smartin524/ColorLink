@@ -30,6 +30,9 @@ class WakeReceiver : BroadcastReceiver() {
                 val type = intent.getIntExtra(BluetoothLeScanner.EXTRA_CALLBACK_TYPE, ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
                 if (type == ScanSettings.CALLBACK_TYPE_MATCH_LOST) {
                     AppLog.i(TAG, "Mac 离开了")
+                } else if (!hasLan()) {
+                    // Mac 就在旁边，但手机没连 Wi-Fi / 热点，连不上；等 Wi-Fi 回来时网络回调会自己敲门
+                    AppLog.i(TAG, "发现 Mac，但没有 Wi-Fi 或热点，先不启动")
                 } else if (!LinkCore.running) {
                     AppLog.i(TAG, "发现 Mac，启动连接核心")
                     LinkCore.start(ctx) // 启动时会自动敲门

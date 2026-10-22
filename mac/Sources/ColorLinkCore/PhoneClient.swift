@@ -139,6 +139,23 @@ public final class PhoneClient: @unchecked Sendable {
         url("api/file", ["kind": item.kind.rawValue, "id": "\(item.id)"], withToken: true)
     }
 
+    public struct TrashResult: Decodable, Sendable {
+        public let trashed: Int
+        /// 手机没有「媒体管理」权限时要用户在手机上点一下确认
+        public let pending: Bool
+    }
+
+    /// 移到手机的「最近删除」（可以在手机上恢复）
+    public func trash(_ items: [MediaItem]) async throws -> TrashResult {
+        var req = request(url("api/trash"), timeout: 15)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["items": items.map { ["kind": $0.kind.rawValue, "id": $0.id] }])
+        let (data, resp) = try await session.data(for: req)
+        try Self.check(resp)
+        return try JSONDecoder().decode(TrashResult.self, from: data)
+    }
+
     /// 下载到指定目录，重名时自动加序号。
     public func download(_ item: MediaItem, to dir: URL) async throws -> URL {
         let req = request(url("api/file", ["kind": item.kind.rawValue, "id": "\(item.id)"]), timeout: 60)

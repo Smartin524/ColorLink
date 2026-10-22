@@ -15,6 +15,7 @@ private const val TAG = "ColorLink.Notify"
 object Notifications {
     const val ID_LINK = 1
     private const val ID_TRANSFER = 2
+    private const val ID_TRASH = 3
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
 
     private const val CH_IDLE = "idle"
@@ -197,6 +198,19 @@ object Notifications {
         }
         return Intent(Intent.ACTION_VIEW).setDataAndType(saved[0].uri, saved[0].mime)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    /** Mac 要删的照片系统需要确认：点通知弹出系统的「移到回收站」确认框 */
+    fun confirmTrash(ctx: Context, request: PendingIntent, count: Int) {
+        createChannels(ctx)
+        val b = Notification.Builder(ctx, CH_RECEIVED)
+            .setSmallIcon(R.drawable.ic_link)
+            .setContentTitle("${LinkCore.macName ?: "Mac"} 想删除 $count 项")
+            .setContentText("点按确认移到「最近删除」；在 ColorLink 里打开「媒体管理」后就不用再确认")
+            .setContentIntent(request)
+            .setAutoCancel(true)
+            .setTimeoutAfter(5 * 60_000)
+        ctx.getSystemService(NotificationManager::class.java).notify(ID_TRASH, b.build())
     }
 
     /** 撤掉传输的流体云（点开「已收到」后调用） */

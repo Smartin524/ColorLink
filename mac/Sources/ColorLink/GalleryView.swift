@@ -28,7 +28,7 @@ struct GalleryView: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
-            .navigationTitle("手机相册")
+            .navigationTitle(link.info?.name ?? link.device?.name ?? "手机")
             .navigationSubtitle(subtitle)
             .toolbar {
                 ToolbarItem(placement: .principal) {
@@ -229,16 +229,18 @@ struct GalleryView: View {
         let run: () -> Void
     }
 
+    /// 菜单只有四项：打开、复制、下载（存到「图片/ColorLink」，和面板一致）、删除（移到手机的「最近删除」）。
+    /// 选了几项看标题栏的「已选 N 项」，菜单里不重复写
     private func actions(for targets: [MediaItem]) -> [Action] {
         guard !targets.isEmpty else { return [] }
-        let n = targets.count
-        let suffix = n == 1 ? "" : " \(n) 项"
-        var list = [Action(title: n == 1 ? "打开" : "打开\(suffix)") { targets.prefix(10).forEach(open) }]
-        list.append(Action(title: n == 1 && targets[0].kind == .image ? "复制图片" : "复制\(suffix)") {
-            Task { _ = await link.copyToClipboard(targets) }
-        })
-        list.append(Action(title: "保存到「下载/ColorLink」") { save(targets, reveal: false) })
-        list.append(Action(title: "保存并在 Finder 中显示") { save(targets, reveal: true) })
+        var list = [
+            Action(title: "打开") { targets.prefix(10).forEach(open) },
+            Action(title: "复制") { Task { _ = await link.copyToClipboard(targets) } },
+            Action(title: "下载") { save(targets) },
+        ]
+        if targets.allSatisfy({ $0.kind != .audio }) {
+            list.append(Action(title: "删除") { trash(targets) })
+        }
         return list
     }
 
@@ -246,8 +248,8 @@ struct GalleryView: View {
     private func showMenu(for targets: [MediaItem]) {
         let menu = NSMenu()
         for a in actions(for: targets) {
+            if a.title == "删除" { menu.addItem(.separator()) }
             menu.addItem(ClosureMenuItem(title: a.title, action: a.run))
-            if a.title.hasPrefix("复制") { menu.addItem(.separator()) }
         }
         menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
     }
@@ -321,6 +323,11 @@ struct GalleryView: View {
 
     private func open(_ item: MediaItem) {
         guard let c = link.client else { return }
+        // 下载过的视频直接打开本地文件
+        if item.kind == .video, let local = link.localCopy(item) {
+            NSWorkspace.shared.open(local)
+            return
+        }
         if item.kind == .video {
             // 视频直接用 Range 请求边下边播
             Windows.shared.openPlayer(c.fileURL(item))
@@ -335,18 +342,37 @@ struct GalleryView: View {
         }
     }
 
-    private func save(_ targets: [MediaItem], reveal: Bool) {
-        guard let c = link.client else { return }
+    /// 移到手机的「最近删除」，成功后从列表里拿掉
+    private func trash(_ targets: [MediaItem]) {
         Task {
-            var saved: [URL] = []
+            message = await link.trash(targets)
+            if message == "已移到手机的「最近删除」" {
+                let gone = Set(targets.map(\.id))
+                items.removeAll { gone.contains($0.id) }
+                total -= gone.count
+                selection.subtract(gone)
+            }
+            try? await Task.sleep(for: .seconds(2.5))
+            message = nil
+        }
+    }
+
+    /// 下载到「图片/ColorLink」；下载过的不重新下
+    private func save(_ targets: [MediaItem]) {
+        Task {
+            var done = 0
             for item in targets {
                 do {
-                    saved.append(try await c.download(item, to: AppDirs.downloads))
+                    _ = try await link.download(item, to: AppDirs.pictures)
+                    done += 1
                 } catch {
                     message = error.localizedDescription
                 }
             }
-            if reveal, !saved.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(saved) }
+            guard done > 0 else { return }
+            message = "已下载到「图片/ColorLink」"
+            try? await Task.sleep(for: .seconds(2))
+            message = nil
         }
     }
 }
@@ -412,6 +438,9 @@ struct ThumbCell: View {
             }
             .overlay {
                 if selected { Color.accentColor.opacity(0.18) }
+            }
+            .overlay(alignment: .topLeading) {
+                if link.isDownloaded(item) { DownloadedMark(size: 15) }
             }
             .overlay(alignment: .topTrailing) {
                 // 选中时右上角打勾，和系统「照片」一致

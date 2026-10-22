@@ -10,6 +10,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
+import android.provider.MediaStore
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -308,6 +309,9 @@ class MainActivity : Activity() {
 
     private fun conditionsCard() = card(padding = 0).apply {
         auto("media", "照片与视频", { granted(mediaPermission()) }) { requestRuntimePermissions() }
+        auto("manageMedia", "媒体管理", { MediaStore.canManageMedia(this@MainActivity) }) {
+            startActivity(Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA, Uri.parse("package:$packageName")))
+        }
         auto("listener", "通知使用权", { NotifyListener.enabled(this@MainActivity) }) {
             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }

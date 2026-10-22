@@ -24,6 +24,12 @@ object Knock {
     const val PORT = 8766
 
     fun send(ctx: Context, httpPort: Int) {
+        // 没有 Wi-Fi / 热点（飞行模式、只开流量）时 Mac 不可能在局域网里；
+        // 不跳过的话，发给 Mac 旧地址的那一包会走流量，白白唤醒蜂窝基带
+        if (!hasLan()) {
+            AppLog.i(TAG, "没有 Wi-Fi 或热点，不敲门")
+            return
+        }
         val id = Prefs.deviceId(ctx)
         val ts = System.currentTimeMillis() / 1000
         val payload = JSONObject()
@@ -78,6 +84,15 @@ fun isCellular(ifName: String) = ifName.startsWith("rmnet") || ifName.startsWith
     ifName.startsWith("v4-") || ifName.startsWith("dummy") || ifName.startsWith("tun")
 
 /** 手机所有局域网 IPv4 地址（Wi-Fi、热点），设置页和通知里显示用。 */
+/** 有没有可能找到 Mac 的局域网（Wi-Fi 或热点）。VPN 隧道不算 */
+fun hasLan(): Boolean = runCatching {
+    NetworkInterface.getNetworkInterfaces().toList().any { nif ->
+        nif.isUp && !nif.isLoopback && !isCellular(nif.name) &&
+            !nif.name.startsWith("tun") && !nif.name.startsWith("ppp") && !nif.name.startsWith("ipsec") &&
+            nif.inetAddresses.toList().any { it is Inet4Address }
+    }
+}.getOrDefault(true)
+
 fun lanIpv4s(): List<String> = runCatching {
     NetworkInterface.getNetworkInterfaces().toList()
         .filter { it.isUp && !it.isLoopback && !isCellular(it.name) }

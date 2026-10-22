@@ -28,6 +28,8 @@ final class LinkController: ObservableObject {
     @Published private(set) var recent: [MediaItem] = []
     /// 发送文件到手机的进度提示；nil 表示空闲
     @Published private(set) var transfer: String?
+    /// 已经下载到这台 Mac 的照片：「手机 ID/cacheKey」→ 本地路径。下载过的不再重新下，界面上打对勾
+    @Published private(set) var downloads: [String: String] = UserDefaults.standard.dictionary(forKey: "downloads") as? [String: String] ?? [:]
 
     @Published var autoCopyScreenshots: Bool {
         didSet { UserDefaults.standard.set(autoCopyScreenshots, forKey: "autoCopyScreenshots") }
@@ -304,8 +306,46 @@ final class LinkController: ObservableObject {
         }
     }
 
-    /// 原图的本地缓存（以原文件名保存，复制成文件时名字也对）。同一张图只下载一次。
+    // MARK: - 已下载
+
+    private func downloadKey(_ item: MediaItem) -> String { "\(device?.deviceId ?? "")/\(item.cacheKey)" }
+
+    /// 这张照片下载到本机的文件；文件被删了就当没下载过
+    func localCopy(_ item: MediaItem) -> URL? {
+        guard let path = downloads[downloadKey(item)] else { return nil }
+        return FileManager.default.fileExists(atPath: path) ? URL(fileURLWithPath: path) : nil
+    }
+
+    func isDownloaded(_ item: MediaItem) -> Bool { localCopy(item) != nil }
+
+    /// 下载到 dir；已经下载过（不管在哪个文件夹）就直接返回那份，不重新下载
+    func download(_ item: MediaItem, to dir: URL) async throws -> URL {
+        if let local = localCopy(item) { return local }
+        guard let c = client else { throw PhoneError.streamEnded }
+        let url = try await c.download(item, to: dir)
+        downloads[downloadKey(item)] = url.path
+        UserDefaults.standard.set(downloads, forKey: "downloads")
+        return url
+    }
+
+    // MARK: - 删除
+
+    /// 把手机上的照片 / 视频移到「最近删除」。返回给界面显示的一句话
+    func trash(_ items: [MediaItem]) async -> String {
+        guard let c = client else { return "手机未连接" }
+        do {
+            let r = try await c.trash(items)
+            AppLog.write("删除手机上的 \(items.count) 项：已移走 \(r.trashed)，等待手机确认 \(r.pending)")
+            await refreshRecent()
+            return r.pending ? "请在手机上确认删除" : "已移到手机的「最近删除」"
+        } catch {
+            return "删除失败：\(error.localizedDescription)"
+        }
+    }
+
+    /// 原图的本地文件（以原文件名保存，复制成文件时名字也对）。下载过就用下载的那份，否则缓存一份，同一张图只下载一次。
     func original(_ item: MediaItem) async throws -> URL {
+        if let local = localCopy(item) { return local }
         guard let c = client else { throw PhoneError.streamEnded }
         let dir = AppDirs.caches.appendingPathComponent("originals/\(item.cacheKey)")
         let cached = dir.appendingPathComponent(item.name)
@@ -319,9 +359,8 @@ final class LinkController: ObservableObject {
 
     /// 下载原图存到「图片/ColorLink」
     func saveToPictures(_ item: MediaItem) async -> Bool {
-        guard let c = client else { return false }
         do {
-            let url = try await c.download(item, to: AppDirs.pictures)
+            let url = try await download(item, to: AppDirs.pictures)
             lastEvent = "已存到 图片/ColorLink：\(url.lastPathComponent)"
             return true
         } catch {
