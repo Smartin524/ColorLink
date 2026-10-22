@@ -170,7 +170,7 @@ class MediaRepo(private val ctx: Context) {
      * 把 Mac 发来的文件存进系统媒体库：图片 → Pictures/ColorLink，视频 → Movies/ColorLink，
      * 音频 → Music/ColorLink，其他 → Download/ColorLink。存自己创建的文件不需要任何权限。
      */
-    fun save(name: String, mime: String, input: InputStream): Saved {
+    fun save(name: String, mime: String, input: InputStream, onProgress: (Long) -> Unit = {}): Saved {
         val (collection, dir) = when {
             mime.startsWith("image/") -> Kind.IMAGE.uri to "Pictures/ColorLink"
             mime.startsWith("video/") -> Kind.VIDEO.uri to "Movies/ColorLink"
@@ -185,7 +185,17 @@ class MediaRepo(private val ctx: Context) {
         }
         val uri = cr.insert(collection, values) ?: throw IllegalStateException("无法在媒体库创建文件")
         try {
-            cr.openOutputStream(uri)!!.use { out -> input.copyTo(out, 64 * 1024) }
+            cr.openOutputStream(uri)!!.use { out ->
+                val buf = ByteArray(64 * 1024)
+                var written = 0L
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    written += n
+                    onProgress(written)
+                }
+            }
             cr.update(uri, ContentValues().apply { put(MediaColumns.IS_PENDING, 0) }, null, null)
         } catch (e: Exception) {
             cr.delete(uri, null, null)

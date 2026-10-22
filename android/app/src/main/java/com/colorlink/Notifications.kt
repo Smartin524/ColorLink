@@ -14,6 +14,8 @@ private const val TAG = "ColorLink.Notify"
 
 object Notifications {
     const val ID_LINK = 1
+    private const val ID_TRANSFER = 2
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
 
     private const val CH_IDLE = "idle"
     private const val CH_CONNECTED = "connected"
@@ -86,6 +88,47 @@ object Notifications {
             .setOngoing(true)
         if (announcing) LiveUpdate.apply(ctx, b, shortText = "已连接")
         return b.build()
+    }
+
+    /** 正在接收 Mac 发来的文件：流体云显示进度（胶囊里是百分比） */
+    fun receiving(ctx: Context, name: String, done: Long, total: Long) {
+        createChannels(ctx)
+        main.removeCallbacksAndMessages(ID_TRANSFER)
+        val pct = if (total > 0) (done * 100 / total).toInt().coerceIn(0, 100) else 0
+        val b = Notification.Builder(ctx, CH_CONNECTED)
+            .setSmallIcon(R.drawable.ic_apple)
+            .setContentTitle("正在接收 $name")
+            .setProgress(100, pct, total <= 0)
+            .setOnlyAlertOnce(true)
+            .setOngoing(true)
+            .setShowWhen(false)
+            .setCategory(Notification.CATEGORY_PROGRESS)
+        LiveUpdate.apply(ctx, b, shortText = if (total > 0) "$pct%" else "接收中")
+        ctx.getSystemService(NotificationManager::class.java).notify(ID_TRANSFER, b.build())
+    }
+
+    /** 接收完成：流体云显示「已收到」约 4 秒，再换成带预览的普通通知 */
+    fun receivedDone(ctx: Context, saved: MediaRepo.Saved) {
+        val kind = if (saved.mime.startsWith("image/")) "图片" else "文件"
+        val b = Notification.Builder(ctx, CH_CONNECTED)
+            .setSmallIcon(R.drawable.ic_apple)
+            .setContentTitle("已收到$kind")
+            .setContentText(saved.name)
+            .setOngoing(true)
+            .setShowWhen(false)
+        LiveUpdate.apply(ctx, b, shortText = "已收到")
+        val nm = ctx.getSystemService(NotificationManager::class.java)
+        nm.notify(ID_TRANSFER, b.build())
+        main.removeCallbacksAndMessages(ID_TRANSFER)
+        main.postAtTime({
+            nm.cancel(ID_TRANSFER)
+            received(ctx, saved)
+        }, ID_TRANSFER, android.os.SystemClock.uptimeMillis() + 4_000)
+    }
+
+    fun receiveFailed(ctx: Context) {
+        main.removeCallbacksAndMessages(ID_TRANSFER)
+        ctx.getSystemService(NotificationManager::class.java).cancel(ID_TRANSFER)
     }
 
     /** Mac 发来了文件。图片带大图预览，点一下用相册打开。 */

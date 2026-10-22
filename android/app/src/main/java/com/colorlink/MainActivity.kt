@@ -31,7 +31,7 @@ import android.widget.Toast
 
 /**
  * 设置页：卡片式，只放状态和开关，不放说明文字（排查靠日志）。
- * - 顶部：图标、名字、连接状态
+ * - 第一屏：正中间是图标、名字和状态小灯，其余往下滑
  * - 需要处理：只列出不满足的条件（权限给过一次就稳定，不必常驻），全部满足时整块隐藏
  * - 配对码：只在配对新电脑时需要，配对过之后收起
  * - 空闲保活开关、配对新电脑、取消所有配对
@@ -47,8 +47,8 @@ class MainActivity : Activity() {
     }
 
     private lateinit var statusDot: View
-    private lateinit var statusText: TextView
-    private lateinit var detailText: TextView
+    private lateinit var hero: android.widget.FrameLayout
+    private lateinit var runText: TextView
     private lateinit var codeText: TextView
     /** 运行条件：只显示不满足的项，全部满足时整块隐藏 */
     private class Condition(val key: String, val view: View, val ok: () -> Boolean)
@@ -95,7 +95,8 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(16), dp(16), dp(24))
         }
-        root.addView(headerCard())
+        hero = hero()
+        root.addView(hero)
         codeCard = codeCard()
         root.addView(codeCard)
         conditionsTitle = sectionTitle("需要处理")
@@ -120,6 +121,13 @@ class MainActivity : Activity() {
         root.isFocusableInTouchMode = true
         root.requestFocus()
         setContentView(scroll)
+        // 状态区占满第一屏，其余内容往下滑才看到
+        scroll.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+            val h = v.height - v.paddingTop - v.paddingBottom - root.paddingTop
+            if (h > 0 && hero.layoutParams.height != h) {
+                hero.layoutParams = hero.layoutParams.apply { height = h }
+            }
+        }
         startAll()
     }
 
@@ -142,31 +150,33 @@ class MainActivity : Activity() {
 
     // region 卡片
 
-    private fun headerCard() = card().apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        addView(ImageView(context).apply {
-            setImageResource(R.mipmap.ic_launcher)
-            layoutParams = LinearLayout.LayoutParams(dp(56), dp(56)).apply { marginEnd = dp(14) }
-        })
+    /** 第一屏：正中间是图标、名字和状态小灯（绿：已连接；灰：待命中；红：没在运行），底部一个下滑提示 */
+    private fun hero() = android.widget.FrameLayout(this).apply {
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(560))
         addView(LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            addView(label("ColorLink", 20f, primary, bold = true))
+            gravity = Gravity.CENTER_HORIZONTAL
+            addView(ImageView(context).apply {
+                setImageResource(R.mipmap.ic_launcher)
+                layoutParams = LinearLayout.LayoutParams(dp(96), dp(96)).apply { bottomMargin = dp(16) }
+            })
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(4), 0, 0)
+                // 默认会跟随父容器（按图标宽度算）而被截断，明确按内容自适应
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                addView(label("ColorLink", 26f, primary, bold = true))
                 statusDot = View(context).apply {
-                    layoutParams = LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(6) }
+                    layoutParams = LinearLayout.LayoutParams(dp(10), dp(10)).apply { marginStart = dp(10) }
                 }
                 addView(statusDot)
-                statusText = label("", 14f, primary)
-                addView(statusText)
             })
-            detailText = label("", 12f, secondary).apply { setPadding(0, dp(2), 0, 0) }
-            addView(detailText)
-        })
+        }, android.widget.FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER,
+        ))
+        addView(label("⌄", 22f, secondary).apply { gravity = Gravity.CENTER }, android.widget.FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
+        ).apply { bottomMargin = dp(8) })
     }
 
     private fun codeCard() = card().apply {
@@ -199,6 +209,14 @@ class MainActivity : Activity() {
     }
 
     private fun settingsCard() = card(padding = 0).apply {
+        runText = label("", 14f, secondary).apply {
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            gravity = Gravity.END
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 2f)
+        }
+        addView(row("状态", trailing = runText))
+        addView(separator())
         addView(row("空闲保活", trailing = Switch(context).apply {
             isChecked = Prefs.keepAlive(this@MainActivity)
             setOnCheckedChangeListener { _, on ->
@@ -225,8 +243,8 @@ class MainActivity : Activity() {
     private fun refresh() {
         val connected = EventBus.count > 0
         val running = LinkCore.running
-        statusDot.background = dot(if (connected) green else if (running) secondary else red)
-        statusText.text = when {
+        statusDot.background = dot(if (connected) green else if (running) secondary else red, size = 10)
+        statusDot.contentDescription = when {
             connected -> "已连接 ${LinkCore.macName ?: "Mac"}"
             running -> "待命中"
             else -> "未运行"
@@ -234,9 +252,16 @@ class MainActivity : Activity() {
         val killed = ColorOS.recentExits(this, 8).count {
             it.wasRunningService && it.hint != null && it.time > System.currentTimeMillis() - 24 * 3600_000L
         }
-        detailText.text = buildString {
-            if (running) append("已运行 ${formatUptime(LinkCore.uptimeMillis)}")
-            if (killed > 0) append(" · 近 24 小时被结束 $killed 次")
+        runText.text = buildString {
+            append(
+                when {
+                    connected -> LinkCore.macName ?: "已连接"
+                    running -> "待命中"
+                    else -> "未运行"
+                },
+            )
+            if (running) append(" · ${formatUptime(LinkCore.uptimeMillis)}")
+            if (killed > 0) append(" · 被结束 $killed 次")
         }
         // 配对码：从没配对过就一直显示；配对过之后点「配对新电脑」才显示
         val code = Prefs.pairCode(this)

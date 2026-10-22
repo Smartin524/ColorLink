@@ -183,9 +183,24 @@ class Api(
             .replace(Regex("""[\\:*?"<>|]"""), "_").take(120).ifBlank { "file" }
         val mime = req.q("mime")?.takeIf { it.contains('/') }
             ?: URLConnection.guessContentTypeFromName(name) ?: "application/octet-stream"
-        val saved = media.save(name, mime, req.body)
+        // 接收过程中显示流体云和进度，最多每 0.3 秒更新一次
+        val total = req.header("content-length")?.toLongOrNull() ?: 0
+        var lastUpdate = 0L
+        Notifications.receiving(ctx, name, 0, total)
+        val saved = try {
+            media.save(name, mime, req.body) { done ->
+                val now = System.currentTimeMillis()
+                if (now - lastUpdate > 300) {
+                    lastUpdate = now
+                    Notifications.receiving(ctx, name, done, total)
+                }
+            }
+        } catch (e: Exception) {
+            Notifications.receiveFailed(ctx)
+            throw e
+        }
         AppLog.i("ColorLink.Api", "收到 Mac 发来的文件：$mime，保存到 ${saved.dir}")
-        Notifications.received(ctx, saved)
+        Notifications.receivedDone(ctx, saved)
         return Response.json(saved.json)
     }
 
