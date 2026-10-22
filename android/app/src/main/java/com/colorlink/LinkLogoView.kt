@@ -87,6 +87,13 @@ class LinkLogoView(context: Context) : View(context) {
         bounce = 1f
     }
 
+    /** 已连接（不播放动画）：静止的彩色扣合链环 */
+    fun showConnected() {
+        animator?.cancel()
+        growA = 1f; growB = 1f; lock = 1f; apart = 0f; gray = 0f; bounce = 1f
+        invalidate()
+    }
+
     /** 待命：静止的、分开的灰色链环 */
     fun showIdle() {
         animator?.cancel()

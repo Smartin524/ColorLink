@@ -114,7 +114,6 @@ class MainActivity : Activity() {
         root.addView(conditionsTitle)
         conditionsCard = conditionsCard()
         root.addView(conditionsCard)
-        root.addView(sectionTitle("设置"))
         root.addView(settingsCard())
         tailSpace = View(this)
         root.addView(tailSpace, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0))
@@ -123,16 +122,25 @@ class MainActivity : Activity() {
             isFillViewport = true
             isVerticalScrollBarEnabled = false
             addView(root)
-            setOnScrollChangeListener { _, _, _, _, _ -> layoutHeader() }
+            setOnScrollChangeListener { _, _, y, _, oldY ->
+                if (y != oldY) lastScrollDown = y > oldY
+                layoutHeader()
+            }
+            // 松手后吸附：不停在中间露出一大段空白
+            setOnTouchListener { _, e ->
+                if (e.actionMasked == android.view.MotionEvent.ACTION_UP || e.actionMasked == android.view.MotionEvent.ACTION_CANCEL) {
+                    handler.removeCallbacks(snapCheck)
+                    handler.postDelayed(snapCheck, 80)
+                }
+                false
+            }
         }
         topBar = View(this).apply {
             background = GradientDrawable().apply { setColor(bg) }
             alpha = 0f
-            elevation = dp(1).toFloat()
         }
         header = header().apply {
             alpha = 0f // 首次摆好位置前先隐藏，免得闪一下左上角
-            elevation = dp(2).toFloat() // 要高于顶部背景条（它有 1dp 阴影），否则会被盖住
             addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> layoutHeader() }
         }
         val screen = android.widget.FrameLayout(this).apply {
@@ -163,7 +171,7 @@ class MainActivity : Activity() {
             }
             if (h > 0) {
                 val content = root.height - heroSpace.height - tailSpace.height
-                val tail = (h - dp(56) - content).coerceAtLeast(0)
+                val tail = (h - dp(64) - content).coerceAtLeast(0)
                 if (tailSpace.layoutParams.height != tail) {
                     tailSpace.layoutParams = tailSpace.layoutParams.apply { height = tail }
                 }
@@ -175,7 +183,6 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        logoConnected = null // 每次回到页面都按当前状态重新展示（连着就再播放一次扣合动画）
         handler.post(tick)
     }
 
@@ -228,6 +235,27 @@ class MainActivity : Activity() {
      * 按滚动进度摆放浮层标志：f = 0 时大标志在第一屏正中，f = 1 时缩成 40dp 的小链环停在顶部正中。
      * 名字先淡出，顶部背景条在快收起时淡入。只改平移、缩放和透明度，不触发重新布局。
      */
+    /** 收起位置：第一张卡片正好贴在顶部背景条下方 */
+    private fun collapseTarget() = (heroSpace.height - dp(64)).coerceAtLeast(0)
+
+    private var lastScrollDown = true
+
+    /** 等滚动停下后再吸附（惯性滑动期间不打断） */
+    private val snapCheck = object : Runnable {
+        private var last = -1
+        override fun run() {
+            val y = scroll.scrollY
+            if (y != last) {
+                last = y
+                handler.postDelayed(this, 80)
+                return
+            }
+            last = -1
+            val target = collapseTarget()
+            if (y in 1 until target) scroll.smoothScrollTo(0, if (lastScrollDown) target else 0)
+        }
+    }
+
     private fun layoutHeader() {
         val viewport = scroll.height - scroll.paddingTop - scroll.paddingBottom
         if (viewport <= 0 || header.width == 0) return
@@ -235,7 +263,7 @@ class MainActivity : Activity() {
         val minScale = collapsedLogo / dp(LOGO_DP)
         val expandedTop = insetTop + (viewport - header.height) / 2f
         val collapsedTop = insetTop + (dp(56) - collapsedLogo) / 2f
-        val distance = (expandedTop - collapsedTop) * 1.4f
+        val distance = collapseTarget().toFloat().coerceAtLeast(1f)
         val f = (scroll.scrollY / distance).coerceIn(0f, 1f)
         val e = f * f * (3 - 2 * f) // 缓入缓出
 
@@ -317,13 +345,15 @@ class MainActivity : Activity() {
         val running = LinkCore.running
         statusDot.background = dot(if (connected) green else if (running) secondary else red, size = 10)
         // 连上时链环长出并扣合；断开时解扣分开；没连接时是分开的灰色链环
+        // 只在状态真正变化时播放一次；刚打开页面时直接显示当前状态
         if (connected != logoConnected) {
-            val wasConnected = logoConnected == true
+            val first = logoConnected == null
             logoConnected = connected
             when {
+                first && connected -> logo.showConnected()
+                first -> logo.showIdle()
                 connected -> logo.playConnect()
-                wasConnected -> logo.playDisconnect() // 正看着页面时断开：解扣、分开、变灰
-                else -> logo.showIdle()
+                else -> logo.playDisconnect()
             }
         }
         statusDot.contentDescription = when {
