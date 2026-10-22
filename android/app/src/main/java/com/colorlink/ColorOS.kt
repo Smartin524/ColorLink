@@ -148,13 +148,13 @@ object ColorOS {
 
     private fun describe(reason: Int): Pair<String, String?> = when (reason) {
         ApplicationExitReason.EXIT_SELF -> "App 自己退出" to null
-        ApplicationExitReason.SIGNALED -> "被系统发信号结束" to "多半是 ColorOS 后台清理。检查「允许完全后台行为」，并在最近任务里给 ColorLink 加锁"
-        ApplicationExitReason.LOW_MEMORY -> "内存不足被回收" to "内存紧张时难免发生；在最近任务里加锁能降低概率"
+        ApplicationExitReason.SIGNALED -> "被系统发信号结束" to "多半是 ColorOS 后台清理。检查「完全允许后台行为」和「自启动」"
+        ApplicationExitReason.LOW_MEMORY -> "内存不足被回收" to "内存紧张时难免发生，通知监听会在内存恢复后把它拉起来"
         ApplicationExitReason.CRASH, ApplicationExitReason.CRASH_NATIVE -> "崩溃" to "这是 App 自身的问题，请用 adb logcat 抓日志"
         ApplicationExitReason.ANR -> "无响应（ANR）" to "这是 App 自身的问题，请用 adb logcat 抓日志"
         ApplicationExitReason.PERMISSION_CHANGE -> "权限被修改" to null
         ApplicationExitReason.EXCESSIVE_RESOURCE_USAGE -> "资源占用过多被结束" to "系统认为耗电过高；检查「允许完全后台行为」"
-        ApplicationExitReason.USER_REQUESTED -> "被强行停止或一键清理" to "在最近任务里给 ColorLink 加锁，避免被一键清理"
+        ApplicationExitReason.USER_REQUESTED -> "被强行停止或一键清理" to "如果不是你手动结束的，检查是否被手机管家等清理工具清理了"
         ApplicationExitReason.USER_STOPPED -> "用户被停止" to null
         ApplicationExitReason.OTHER -> "系统其他原因（常见于厂商省电策略）" to "检查「允许完全后台行为」「自启动」，并关闭「睡眠待机优化」"
         ApplicationExitReason.FREEZER -> "被冻结后结束" to "ColorOS 冻结了后台进程；检查「允许完全后台行为」"

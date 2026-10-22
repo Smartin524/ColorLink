@@ -54,7 +54,10 @@
 
         <activity
             android:name=".MainActivity"
+            android:excludeFromRecents="true"
             android:exported="true">
+            <!-- 不在最近任务（多任务）里显示：后台连接靠通知监听和前台服务，不需要卡片；
+                 不在列表里，一键清理也清不到它 -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

@@ -88,12 +88,6 @@ class MainActivity : Activity() {
             if (!ColorOS.openAutoStart(this)) toast("ColorOS 不允许直接打开自启动页，请依次点：应用 → 自启动管理 → ColorLink")
         })
         root.addView(manualRow(
-            key = "recents",
-            title = "在最近任务里加锁",
-            how = "打开最近任务，在 ColorLink 卡片上下拉（或长按）选「锁定」。加锁后一键清理不会结束它。",
-            action = null,
-        ) {})
-        root.addView(manualRow(
             key = "sleep",
             title = "关闭「睡眠待机优化」",
             how = "设置 → 电池 → 更多设置 → 关闭「睡眠待机优化」。开着的话，夜间或长时间不用手机时会断网。",

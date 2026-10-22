@@ -18,6 +18,7 @@ object Notifications {
 
     private const val CH_IDLE = "idle"
     private const val CH_CONNECTED = "connected"
+    private const val CH_LINKED = "linked"
     private const val CH_RECEIVED = "received"
 
     private fun createChannels(ctx: Context) {
@@ -38,6 +39,12 @@ object Notifications {
             },
         )
         nm.createNotificationChannel(
+            NotificationChannel(CH_LINKED, "已连接电脑（常驻）", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "连着 Mac 期间一直显示，断开后自动消失"
+                setShowBadge(false)
+            },
+        )
+        nm.createNotificationChannel(
             NotificationChannel(CH_RECEIVED, "收到的文件", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "Mac 发来图片或文件时提醒"
             },
@@ -48,10 +55,19 @@ object Notifications {
         ctx, 0, Intent(ctx, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
     )
 
-    /** 前台服务的通知：连着 Mac 时是流体云，否则是折叠的静默通知。 */
-    fun link(ctx: Context, connected: Boolean): Notification {
+    enum class LinkState {
+        /** 没连电脑（只在要求常驻或没有通知监听时出现）：折叠的静默通知 */
+        IDLE,
+        /** 刚连上的几秒：流体云 */
+        ANNOUNCING,
+        /** 连着电脑：普通常驻通知 */
+        CONNECTED,
+    }
+
+    /** 前台服务的通知 */
+    fun link(ctx: Context, state: LinkState): Notification {
         createChannels(ctx)
-        if (!connected) {
+        if (state == LinkState.IDLE) {
             return Notification.Builder(ctx, CH_IDLE)
                 .setSmallIcon(R.drawable.ic_link)
                 .setContentTitle("ColorLink 正在后台运行")
@@ -61,14 +77,15 @@ object Notifications {
                 .build()
         }
         val mac = LinkCore.macName ?: "Mac"
-        val b = Notification.Builder(ctx, CH_CONNECTED)
+        val announcing = state == LinkState.ANNOUNCING
+        val b = Notification.Builder(ctx, if (announcing) CH_CONNECTED else CH_LINKED)
             .setSmallIcon(R.drawable.ic_mac) // 流体云胶囊左边的图标
             .setContentTitle("已连接 $mac")
             .setContentText("可以在 Mac 上浏览照片、接收截图和文件")
             .setContentIntent(openApp(ctx))
             .setCategory(Notification.CATEGORY_STATUS)
             .setOngoing(true)
-        LiveUpdate.apply(ctx, b, shortText = "已连接")
+        if (announcing) LiveUpdate.apply(ctx, b, shortText = "已连接")
         return b.build()
     }
 
