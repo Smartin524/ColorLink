@@ -23,8 +23,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Windows.shared.link = link
         statusBar = StatusBarController(link: link)
 
-        // 调试用：带 --show-panel / --show-drop 启动时自动打开面板，方便截图核对界面
+        // 调试用：带 --show-panel / --show-drop / --show-gallery 启动时自动打开对应界面，方便截图核对
         let args = CommandLine.arguments
+        if args.contains("--show-gallery") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { Windows.shared.showGallery() }
+        }
         if args.contains("--show-panel") || args.contains("--show-drop") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [statusBar] in
                 statusBar?.show(dropMode: args.contains("--show-drop"))
@@ -43,7 +46,8 @@ final class Windows {
     private var pair: NSWindow?
 
     func showGallery() {
-        gallery = show(gallery, title: "手机相册", size: NSSize(width: 900, height: 640), resizable: true) {
+        gallery = show(gallery, title: "手机相册", size: NSSize(width: 960, height: 680), resizable: true,
+                       minSize: NSSize(width: 720, height: 520), autosave: "ColorLinkGallery") {
             GalleryView().environmentObject(self.link)
         }
     }
@@ -65,7 +69,8 @@ final class Windows {
     }
 
     private func show<V: View>(
-        _ existing: NSWindow?, title: String, size: NSSize, resizable: Bool, content: () -> V
+        _ existing: NSWindow?, title: String, size: NSSize, resizable: Bool,
+        minSize: NSSize? = nil, autosave: String? = nil, content: () -> V
     ) -> NSWindow {
         if let w = existing {
             w.makeKeyAndOrderFront(nil)
@@ -77,9 +82,18 @@ final class Windows {
         let w = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: style, backing: .buffered, defer: false)
         w.title = title
         w.isReleasedWhenClosed = false
-        w.contentViewController = NSHostingController(rootView: content())
-        if !resizable { w.setContentSize(w.contentViewController!.view.fittingSize) }
+        let host = NSHostingController(rootView: content())
+        // 可调大小的窗口不要让 SwiftUI 按内容的最小尺寸去压窗口（相册曾因此缩成一条）
+        if resizable { host.sizingOptions = [] }
+        w.contentViewController = host
+        if resizable {
+            w.setContentSize(size)
+            if let minSize { w.contentMinSize = minSize }
+        } else {
+            w.setContentSize(host.view.fittingSize)
+        }
         w.center()
+        if let autosave { w.setFrameAutosaveName(autosave) } // 记住上次的大小和位置
         w.makeKeyAndOrderFront(nil)
         NSApp.activate()
         return w

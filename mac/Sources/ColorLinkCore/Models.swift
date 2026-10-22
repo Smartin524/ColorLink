@@ -20,6 +20,8 @@ public struct MediaItem: Codable, Hashable, Identifiable, Sendable {
     public let size: Int64
     /// 修改时间（秒）。和 id 一起唯一确定一张缩略图。
     public let modified: Int64
+    /// 加入相册的时间（秒），用来按日期分组
+    public let added: Int64?
     public let width: Int?
     public let height: Int?
     /// 毫秒
