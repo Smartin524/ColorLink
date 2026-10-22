@@ -19,11 +19,18 @@ enum BrandIcon {
             ctx.translateBy(x: 512, y: 510)
             ctx.scaleBy(x: 1.16, y: 1.16)
             ctx.translateBy(x: -512, y: -510)
-            let base: CGFloat = connected ? 1 : 0.4
-            NSColor.black.withAlphaComponent(0.55 * base).setFill()
+            // 两条丝带都用实色；在左丝带边缘切一道细缝表现穿插，不用半透明（半亮半暗看着不协调）
+            ctx.setAlpha(connected ? 1 : 0.4) // 断开时整体变淡
+            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+            NSColor.black.setFill()
             path(rightRibbon).fill()
-            NSColor.black.withAlphaComponent(base).setFill()
+            let gap = path(leftRibbon)
+            gap.lineWidth = 46
+            ctx.setBlendMode(.clear)
+            gap.stroke()
+            ctx.setBlendMode(.normal)
             path(leftRibbon).fill()
+            ctx.endTransparencyLayer()
             return true
         }
         image.isTemplate = true
