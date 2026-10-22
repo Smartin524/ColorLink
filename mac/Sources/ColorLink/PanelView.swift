@@ -43,7 +43,8 @@ struct PanelView: View {
                         Windows.shared.showGallery()
                     } label: {
                         Image(systemName: "photo.on.rectangle")
-                            .frame(width: 28, height: 28)
+                            .font(.system(size: 10, weight: .medium))
+                            .frame(width: 22, height: 22)
                             .glassEffect(.regular.interactive(), in: .circle)
                     }
                     .buttonStyle(.plain)
@@ -59,7 +60,8 @@ struct PanelView: View {
     private var moreMenu: some View {
         Button(action: showMoreMenu) {
             Image(systemName: "ellipsis")
-                .frame(width: 28, height: 28)
+                .font(.system(size: 10, weight: .medium))
+                .frame(width: 22, height: 22)
                 .glassEffect(.regular.interactive(), in: .circle)
         }
         .buttonStyle(.plain)
