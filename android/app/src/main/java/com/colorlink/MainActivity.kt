@@ -32,9 +32,9 @@ import android.widget.Toast
 /**
  * 设置页：卡片式，只放状态和开关，不放说明文字（排查靠日志）。
  * - 顶部：图标、名字、连接状态
- * - 配对码
- * - 运行条件：能检测的自动打勾；ColorOS 不让查询的，设好后手动打勾。点一行跳到对应设置
- * - 空闲保活开关、更换配对码、取消所有配对
+ * - 需要处理：只列出不满足的条件（权限给过一次就稳定，不必常驻），全部满足时整块隐藏
+ * - 配对码：只在配对新电脑时需要，配对过之后收起
+ * - 空闲保活开关、配对新电脑、取消所有配对
  */
 class MainActivity : Activity() {
 
@@ -50,7 +50,16 @@ class MainActivity : Activity() {
     private lateinit var statusText: TextView
     private lateinit var detailText: TextView
     private lateinit var codeText: TextView
-    private val autoRows = mutableListOf<Pair<() -> Boolean, ImageView>>()
+    /** 运行条件：只显示不满足的项，全部满足时整块隐藏 */
+    private class Condition(val key: String, val view: View, val ok: () -> Boolean)
+    private val conditions = mutableListOf<Condition>()
+    private lateinit var conditionsTitle: View
+    private lateinit var conditionsCard: LinearLayout
+    private var shownConditions: List<String>? = null
+    private lateinit var codeCard: View
+    private lateinit var pairRowTitle: TextView
+    /** 配对过之后配对码默认收起，点「配对新电脑」才显示 */
+    private var showCode = false
 
     // 配色：跟随系统日间 / 暗色，强调色取系统主题色
     private val night by lazy {
@@ -87,9 +96,12 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(16), dp(16), dp(24))
         }
         root.addView(headerCard())
-        root.addView(codeCard())
-        root.addView(sectionTitle("运行条件"))
-        root.addView(conditionsCard())
+        codeCard = codeCard()
+        root.addView(codeCard)
+        conditionsTitle = sectionTitle("需要处理")
+        root.addView(conditionsTitle)
+        conditionsCard = conditionsCard()
+        root.addView(conditionsCard)
         root.addView(sectionTitle("设置"))
         root.addView(settingsCard())
 
@@ -171,25 +183,19 @@ class MainActivity : Activity() {
     }
 
     private fun conditionsCard() = card(padding = 0).apply {
-        val rows = listOf<View>(
-            autoRow("照片与视频", { granted(mediaPermission()) }) { requestRuntimePermissions() },
-            autoRow("通知使用权", { NotifyListener.enabled(this@MainActivity) }) {
-                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-            },
-            autoRow("忽略电池优化", { ignoringBattery() }) { requestIgnoreBattery() },
-            autoRow("蓝牙", { BleWake.hasPermission(this@MainActivity) }) { requestRuntimePermissions() },
-            autoRow("流体云", { LiveUpdate.canPromote(this@MainActivity) != false }) { Notifications.openSettings(this@MainActivity) },
-            manualRow("background", "完全允许后台行为") { ColorOS.openAppDetails(this@MainActivity) },
-            manualRow("autostart", "自启动与关联启动") {
-                if (!ColorOS.openAutoStart(this@MainActivity)) toast("应用 → 自启动管理 / 关联启动管理 → ColorLink")
-            },
-            manualRow("sleep", "关闭睡眠待机优化") { ColorOS.openBatterySettings(this@MainActivity) },
-            manualRow("wifi", "WLAN 不自动切换流量") { ColorOS.openWifiSettings(this@MainActivity) },
-        )
-        rows.forEachIndexed { i, row ->
-            if (i > 0) addView(separator())
-            addView(row)
+        auto("media", "照片与视频", { granted(mediaPermission()) }) { requestRuntimePermissions() }
+        auto("listener", "通知使用权", { NotifyListener.enabled(this@MainActivity) }) {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }
+        auto("battery", "忽略电池优化", { ignoringBattery() }) { requestIgnoreBattery() }
+        auto("bluetooth", "蓝牙", { BleWake.hasPermission(this@MainActivity) }) { requestRuntimePermissions() }
+        auto("live", "流体云", { LiveUpdate.canPromote(this@MainActivity) != false }) { Notifications.openSettings(this@MainActivity) }
+        manual("background", "完全允许后台行为") { ColorOS.openAppDetails(this@MainActivity) }
+        manual("autostart", "自启动与关联启动") {
+            if (!ColorOS.openAutoStart(this@MainActivity)) toast("应用 → 自启动管理 / 关联启动管理 → ColorLink")
+        }
+        manual("sleep", "关闭睡眠待机优化") { ColorOS.openBatterySettings(this@MainActivity) }
+        manual("wifi", "WLAN 不自动切换流量") { ColorOS.openWifiSettings(this@MainActivity) }
     }
 
     private fun settingsCard() = card(padding = 0).apply {
@@ -201,10 +207,10 @@ class MainActivity : Activity() {
             }
         }))
         addView(separator())
-        addView(row("更换配对码", titleColor = accent) {
-            Prefs.resetPairCode(this@MainActivity)
+        addView(row("配对新电脑", titleColor = accent) {
+            showCode = !showCode
             refresh()
-        })
+        }.also { pairRowTitle = it.getChildAt(0) as TextView })
         addView(separator())
         addView(row("取消所有电脑的配对", titleColor = red) {
             Prefs.resetToken(this@MainActivity)
@@ -232,31 +238,50 @@ class MainActivity : Activity() {
             if (running) append("已运行 ${formatUptime(LinkCore.uptimeMillis)}")
             if (killed > 0) append(" · 近 24 小时被结束 $killed 次")
         }
+        // 配对码：从没配对过就一直显示；配对过之后点「配对新电脑」才显示
         val code = Prefs.pairCode(this)
         codeText.text = "${code.take(3)} ${code.drop(3)}"
-        for ((check, icon) in autoRows) setStatus(icon, check())
+        val paired = Prefs.paired(this)
+        codeCard.visibility = if (!paired || showCode) View.VISIBLE else View.GONE
+        pairRowTitle.text = if (paired && showCode) "收起配对码" else "配对新电脑"
+
+        // 运行条件：只列出不满足的；集合变了才重排，避免每秒重建
+        val pending = conditions.filter { !it.ok() }
+        val keys = pending.map { it.key }
+        if (keys != shownConditions) {
+            shownConditions = keys
+            conditionsCard.removeAllViews()
+            pending.forEachIndexed { i, c ->
+                if (i > 0) conditionsCard.addView(separator())
+                conditionsCard.addView(c.view)
+            }
+            val visible = if (pending.isEmpty()) View.GONE else View.VISIBLE
+            conditionsTitle.visibility = visible
+            conditionsCard.visibility = visible
+        }
     }
 
     // endregion
 
     // region 行与小部件
 
-    private fun autoRow(title: String, check: () -> Boolean, onClick: () -> Unit): View {
+    /** 能自动检测的条件：不满足时显示，点一下去授权 / 去设置 */
+    private fun auto(key: String, title: String, ok: () -> Boolean, onClick: () -> Unit) {
         val icon = ImageView(this).apply {
             layoutParams = LinearLayout.LayoutParams(dp(22), dp(22))
             scaleType = ImageView.ScaleType.CENTER
+            setImageDrawable(dot(red, size = 10))
         }
-        autoRows += check to icon
-        return row(title, trailing = icon) { if (!check()) onClick() }
+        conditions += Condition(key, row(title, trailing = icon, onClick = onClick), ok)
     }
 
-    private fun manualRow(key: String, title: String, onClick: () -> Unit): View {
+    /** ColorOS 不让查询的条件：点一下去设置，设好后勾上就不再显示 */
+    private fun manual(key: String, title: String, onClick: () -> Unit) {
         val box = CheckBox(this).apply {
-            isChecked = Prefs.confirmed(this@MainActivity, key)
             buttonTintList = android.content.res.ColorStateList.valueOf(accent)
             setOnCheckedChangeListener { _, on -> Prefs.setConfirmed(this@MainActivity, key, on) }
         }
-        return row(title, trailing = box, onClick = onClick)
+        conditions += Condition(key, row(title, trailing = box, onClick = onClick)) { Prefs.confirmed(this, key) }
     }
 
     private fun row(title: String, trailing: View? = null, titleColor: Int = primary, onClick: (() -> Unit)? = null) =
@@ -275,13 +300,6 @@ class MainActivity : Activity() {
                 setOnClickListener { onClick() }
             }
         }
-
-    /** 满足：绿色对勾；不满足：红点 */
-    private fun setStatus(icon: ImageView, ok: Boolean) {
-        icon.setImageDrawable(if (ok) checkmark() else dot(red, size = 10))
-    }
-
-    private fun checkmark() = TextDrawable("✓", green, dp(18).toFloat())
 
     private fun card(padding: Int = 16) = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
@@ -375,33 +393,4 @@ class MainActivity : Activity() {
     }
 
     // endregion
-}
-
-/** 把一个字符画成图标（用来显示绿色对勾，免得再加图片资源） */
-private class TextDrawable(private val text: String, color: Int, private val size: Float) : android.graphics.drawable.Drawable() {
-    override fun getIntrinsicWidth() = (size * 1.2f).toInt()
-    override fun getIntrinsicHeight() = (size * 1.2f).toInt()
-
-    private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-        this.color = color
-        textSize = size
-        typeface = Typeface.DEFAULT_BOLD
-        textAlign = android.graphics.Paint.Align.CENTER
-    }
-
-    override fun draw(canvas: android.graphics.Canvas) {
-        val b = bounds
-        canvas.drawText(text, b.exactCenterX(), b.exactCenterY() - (paint.descent() + paint.ascent()) / 2, paint)
-    }
-
-    override fun setAlpha(alpha: Int) {
-        paint.alpha = alpha
-    }
-
-    override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {
-        paint.colorFilter = colorFilter
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
 }

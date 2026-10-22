@@ -48,7 +48,10 @@ class Api(
 
     private fun authorized(req: Request): Boolean {
         val given = req.header("authorization")?.removePrefix("Bearer ")?.trim() ?: req.q("t") ?: return false
-        return MessageDigest.isEqual(given.toByteArray(), Prefs.token(ctx).toByteArray())
+        val ok = MessageDigest.isEqual(given.toByteArray(), Prefs.token(ctx).toByteArray())
+        // 早于“已配对”记录的老配对：有电脑带着正确密钥来访问，就补记为已配对
+        if (ok && !Prefs.paired(ctx)) Prefs.setPaired(ctx)
+        return ok
     }
 
     @Synchronized
@@ -65,6 +68,7 @@ class Api(
         }
         failedPairs = 0
         Prefs.resetPairCode(ctx)
+        Prefs.setPaired(ctx)
         AppLog.i("ColorLink.Api", "与「${req.q("client") ?: "?"}」配对成功（${req.remote.hostAddress}）")
         return Response.json(
             JSONObject()

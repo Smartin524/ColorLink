@@ -23,7 +23,14 @@ object Prefs {
     fun token(ctx: Context) = getOrCreate(ctx, "token") { randomHex(32) }
 
     fun resetToken(ctx: Context) {
-        sp(ctx).edit().putString("token", randomHex(32)).apply()
+        sp(ctx).edit().putString("token", randomHex(32)).putBoolean("paired", false).apply()
+    }
+
+    /** 有没有电脑配对过；配对过之后设置页就不再常驻显示配对码 */
+    fun paired(ctx: Context) = sp(ctx).getBoolean("paired", false)
+
+    fun setPaired(ctx: Context) {
+        sp(ctx).edit().putBoolean("paired", true).apply()
     }
 
     fun pairCode(ctx: Context) = getOrCreate(ctx, "pairCode") { randomCode() }
