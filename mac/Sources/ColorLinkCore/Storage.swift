@@ -46,6 +46,12 @@ public enum AppDirs {
         FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0].appendingPathComponent("ColorLink")
     }
 
+    /// 这台手机在本机长期保存的数据（相册列表、缩略图）。放在「应用程序支持」而不是「缓存」：缓存可能被系统清掉
+    public static func library(_ deviceId: String) -> URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("ColorLink/\(deviceId)")
+    }
+
     public static var downloads: URL {
         FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0].appendingPathComponent("ColorLink")
     }
@@ -58,9 +64,34 @@ public actor ThumbnailCache {
     private var inflight: [String: Task<Data?, Never>] = [:]
 
     public init(deviceId: String) {
-        dir = AppDirs.caches.appendingPathComponent("thumbs/\(deviceId)")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        dir = AppDirs.library(deviceId).appendingPathComponent("thumbs")
+        // 旧版存在「缓存」里，搬过来，不用重新下载
+        let old = AppDirs.caches.appendingPathComponent("thumbs/\(deviceId)")
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: dir.path), fm.fileExists(atPath: old.path) {
+            try? fm.createDirectory(at: dir.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? fm.moveItem(at: old, to: dir)
+        }
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         memory.countLimit = 2000
+    }
+
+    /// 只读本机保存的（手机没连上时用）
+    public nonisolated func stored(_ item: MediaItem) -> Data? {
+        try? Data(contentsOf: dir.appendingPathComponent(item.cacheKey + ".jpg"))
+    }
+
+    /// 本机是否已经存了这张缩略图
+    public nonisolated func has(_ item: MediaItem) -> Bool {
+        FileManager.default.fileExists(atPath: dir.appendingPathComponent(item.cacheKey + ".jpg").path)
+    }
+
+    /// 后台补齐用：只存到磁盘，不占内存缓存。返回是否成功
+    public nonisolated func prefetch(_ item: MediaItem, client: PhoneClient) async -> Bool {
+        let file = dir.appendingPathComponent(item.cacheKey + ".jpg")
+        if FileManager.default.fileExists(atPath: file.path) { return true }
+        guard let d = try? await client.thumbnail(item) else { return false }
+        return (try? d.write(to: file, options: .atomic)) != nil
     }
 
     public func data(for item: MediaItem, client: PhoneClient) async -> Data? {

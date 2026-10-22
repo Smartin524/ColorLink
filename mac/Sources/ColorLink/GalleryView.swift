@@ -12,7 +12,6 @@ struct GalleryView: View {
     @State private var kind: MediaKind = .image
     @State private var items: [MediaItem] = []
     @State private var total = 0
-    @State private var loading = false
     @State private var message: String?
     @State private var selection = Set<MediaItem.ID>()
     /// ⇧ 连续选择的起点
@@ -24,8 +23,6 @@ struct GalleryView: View {
     @State private var sections: [DaySection] = []
     @State private var band: CGRect?
     @State private var bandBase = Set<MediaItem.ID>()
-
-    private let pageSize = 200
 
     var body: some View {
         content
@@ -43,15 +40,17 @@ struct GalleryView: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        Task { await revalidate() }
+                        Task { await sync() }
                     } label: {
                         Label("刷新", systemImage: "arrow.clockwise")
                     }
                     .help("刷新")
-                    .disabled(link.client == nil || loading)
+                    .disabled(link.client == nil || syncing)
                 }
             }
             .task(id: "\(kind.rawValue)-\(link.connectionID)") { await reload() }
+            // 本机副本有变化（核对完、第一次同步边拉边显示）时刷新
+            .onReceive(link.$library.compactMap { $0?.$lists }.switchToLatest()) { show($0[kind]) }
     }
 
     private var subtitle: String {
@@ -59,18 +58,20 @@ struct GalleryView: View {
         if !selection.isEmpty { return "已选 \(selection.count) 项" }
         guard total > 0 else { return link.client == nil ? "手机未连接" : "加载中…" }
         let unit = kind == .image ? "张" : "个"
-        return items.count < total ? "\(items.count) / \(total) \(unit)" : "\(total) \(unit)"
+        if link.client == nil { return "\(total) \(unit) · 手机未连接，显示的是本机保存的" }
+        // 第一次同步还在拉
+        return items.count < total ? "正在同步 \(items.count) / \(total) \(unit)" : "\(total) \(unit)"
     }
 
     // MARK: - 内容
 
     @ViewBuilder
     private var content: some View {
-        if link.client == nil {
+        if link.client == nil && items.isEmpty {
             ContentUnavailableView("手机未连接", systemImage: "iphone.slash",
                                    description: Text("连上以后这里会自动刷新"))
         } else if items.isEmpty {
-            if loading || total > 0 {
+            if syncing || total > 0 {
                 ProgressView()
             } else {
                 ContentUnavailableView("没有\(kind.title)", systemImage: kind == .audio ? "waveform" : "photo.on.rectangle")
@@ -100,7 +101,6 @@ struct GalleryView: View {
                                 })
                                 .onTapGesture { click(item) }
                                 .contextMenu { contextMenu(for: item) }
-                                .onAppear { if item == items.last { Task { await loadMore() } } }
                         }
                     } header: {
                         // 悬浮的玻璃小胶囊，滚动时吸在顶部（和「照片」App 一样）
@@ -160,7 +160,6 @@ struct GalleryView: View {
             ForEach(items) { item in
                 AudioRow(item: item)
                     .tag(item.id)
-                    .onAppear { if item == items.last { Task { await loadMore() } } }
             }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
@@ -307,54 +306,32 @@ struct GalleryView: View {
 
     // MARK: - 数据
 
-    /// 切换类型、重新连上时：先显示上次的列表（秒开），再去手机上核对第一页，有变化才替换
+    private var syncing: Bool { link.library?.syncing.contains(kind) == true }
+
+    /// 切换类型、重新连上时：先显示本机保存的列表（秒开），再在后台和手机核对
     private func reload() async {
         selection.removeAll()
         anchor = nil
-        let cached = link.cachedList(kind)
-        setItems(cached?.items ?? [], total: cached?.total ?? 0, save: false)
-        await revalidate()
+        show(link.library?.lists[kind])
+        await sync()
     }
 
-    /// 取第一页和现有列表对比：一样就不动（已经往下加载的也保留），不一样就换成新的第一页
-    private func revalidate() async {
-        guard let c = link.client else { return }
-        let k = kind
-        loading = true
-        defer { loading = false }
-        do {
-            let page = try await c.media(kind: k, offset: 0, limit: pageSize)
-            guard k == kind else { return }
-            if page.total != total || Array(items.prefix(page.items.count)) != page.items {
-                setItems(page.items, total: page.total)
-            }
-            message = nil
-        } catch {
-            message = error.localizedDescription
-        }
+    private func sync() async {
+        guard let c = link.client, let library = link.library else { return }
+        await library.sync(kind, client: c)
     }
 
-    private func loadMore() async {
-        guard let c = link.client, !loading, items.count < total else { return }
-        let k = kind
-        loading = true
-        defer { loading = false }
-        do {
-            let page = try await c.media(kind: k, offset: items.count, limit: pageSize)
-            guard k == kind else { return }
-            setItems(items + page.items, total: page.total)
-            message = nil
-        } catch {
-            message = error.localizedDescription
-        }
+    private func show(_ snap: MediaLibrary.Snapshot?) {
+        let new = snap?.items ?? []
+        guard new != items || snap?.total != total else { return }
+        setItems(new, total: snap?.total ?? 0)
     }
 
-    /// 列表只从这里改：顺带重新分组，并存进缓存
-    private func setItems(_ new: [MediaItem], total: Int, save: Bool = true) {
+    /// 列表只从这里改：顺带重新分组
+    private func setItems(_ new: [MediaItem], total: Int) {
         items = new
         self.total = total
         sections = kind == .audio ? [] : Self.group(new)
-        if save { link.storeList(kind, total: total, items: new) }
     }
 
     // MARK: - 操作
@@ -386,7 +363,7 @@ struct GalleryView: View {
             message = await link.trash(targets)
             if message == "已移到手机的「最近删除」" {
                 let gone = Set(targets.map(\.id))
-                setItems(items.filter { !gone.contains($0.id) }, total: total - gone.count)
+                link.library?.remove(gone, kind: kind)
                 selection.subtract(gone)
             }
             try? await Task.sleep(for: .seconds(2.5))
@@ -528,9 +505,9 @@ struct ThumbCell: View {
             .task(id: item.cacheKey) {
                 // 滚回来的格子直接用内存里解码好的图，不闪、不重新解码
                 if ThumbImages.cached(item) != nil { return }
-                guard let c = link.client, let cache = link.thumbs,
-                      let d = await cache.data(for: item, client: c),
-                      let decoded = await ThumbImages.decode(d, for: item) else { return }
+                guard let cache = link.thumbs else { return }
+                let data = if let c = link.client { await cache.data(for: item, client: c) } else { cache.stored(item) }
+                guard let data, let decoded = await ThumbImages.decode(data, for: item) else { return }
                 withAnimation(.easeIn(duration: 0.15)) { image = decoded }
             }
     }

@@ -87,7 +87,14 @@ class MediaRepo(private val ctx: Context) {
         cr.query(kind.uri, projection, args, null)?.use { c ->
             while (c.moveToNext()) items.put(toJson(kind, c))
         }
-        return JSONObject().put("total", total(kind)).put("items", items)
+        // generation：媒体库的「代数」，任何增删改都会变。Mac 据此判断本地保存的列表还能不能直接用
+        return JSONObject().put("total", total(kind)).put("generation", generation()).put("items", items)
+    }
+
+    private fun generation(): Long = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        MediaStore.getGeneration(ctx, MediaStore.VOLUME_EXTERNAL_PRIMARY)
+    } else {
+        -1L
     }
 
     /** 每种媒体的总数，按媒体库「代数」缓存：没有增删就不重新数（一万多张照片数一次要把所有 ID 读一遍） */
@@ -95,11 +102,7 @@ class MediaRepo(private val ctx: Context) {
 
     @Synchronized
     private fun total(kind: Kind): Int {
-        val generation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            MediaStore.getGeneration(ctx, MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        } else {
-            -1L
-        }
+        val generation = generation()
         totals[kind]?.let { (gen, n) -> if (gen == generation && gen >= 0) return n }
         val n = cr.query(kind.uri, arrayOf(MediaColumns._ID), null, null)?.use { it.count } ?: 0
         totals[kind] = generation to n

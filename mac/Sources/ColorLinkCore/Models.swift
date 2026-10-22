@@ -32,6 +32,8 @@ public struct MediaItem: Codable, Hashable, Identifiable, Sendable {
 
 public struct MediaPage: Codable, Sendable {
     public let total: Int
+    /// 手机媒体库的「代数」：有任何增删改就会变（旧版手机 / 模拟手机没有）
+    public let generation: Int64?
     public let items: [MediaItem]
 }
 

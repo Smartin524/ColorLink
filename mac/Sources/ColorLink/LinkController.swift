@@ -22,6 +22,9 @@ final class LinkController: ObservableObject {
     @Published private(set) var device: PairedPhone?
     @Published private(set) var info: DeviceInfo?
     @Published private(set) var thumbs: ThumbnailCache?
+    /// 手机相册在本机的完整副本
+    @Published private(set) var library: MediaLibrary?
+    private var prefetchTask: Task<Void, Never>?
     /// 每次连上换一个新值，界面据此刷新列表
     @Published private(set) var connectionID = UUID()
     @Published private(set) var lastEvent: String?
@@ -61,6 +64,11 @@ final class LinkController: ObservableObject {
 
     init() {
         UserDefaults.standard.register(defaults: ["autoCopyScreenshots": true, "mirrorNotifications": true, "autoCopyCodes": true])
+        // 没连上手机也能翻本机保存的相册
+        if let p = PairedStore.all().first {
+            thumbs = ThumbnailCache(deviceId: p.deviceId)
+            library = MediaLibrary(deviceId: p.deviceId)
+        }
         autoCopyScreenshots = UserDefaults.standard.bool(forKey: "autoCopyScreenshots")
         mirrorNotifications = UserDefaults.standard.bool(forKey: "mirrorNotifications")
         autoCopyCodes = UserDefaults.standard.bool(forKey: "autoCopyCodes")
@@ -162,8 +170,9 @@ final class LinkController: ObservableObject {
                 p.name = info.name
                 PairedStore.save(p)
 
-                if thumbs == nil || device?.deviceId != p.deviceId {
+                if library?.deviceId != p.deviceId {
                     thumbs = ThumbnailCache(deviceId: p.deviceId)
+                    library = MediaLibrary(deviceId: p.deviceId)
                 }
                 self.client = c
                 self.device = p
@@ -172,6 +181,7 @@ final class LinkController: ObservableObject {
                 state = .connected(p.name)
                 backoff = 1
                 Task { await refreshRecent() }
+                if let library, let thumbs { startBackgroundSync(c, library: library, thumbs: thumbs) }
 
                 let stream = Task {
                     for try await event in c.events() {
@@ -191,6 +201,8 @@ final class LinkController: ObservableObject {
                 AppLog.write("连接 \(endpoint) 失败：\(error)")
             }
 
+            prefetchTask?.cancel()
+            prefetchTask = nil
             if client != nil {
                 client = nil
                 recent = []
@@ -340,41 +352,53 @@ final class LinkController: ObservableObject {
         }
     }
 
-    // MARK: - 相册列表缓存
+    // MARK: - 本机相册副本
 
-    /// 每种类型上次的列表：内存里一份，磁盘上存前 1000 项（重开 App 也能秒开相册）
-    private struct CachedList: Codable {
-        let total: Int
-        let items: [MediaItem]
-    }
-
-    private var lists: [MediaKind: CachedList] = [:]
-    private var listsDevice: String?
-
-    private func listFile(_ kind: MediaKind) -> URL? {
-        guard let id = device?.deviceId else { return nil }
-        return AppDirs.caches.appendingPathComponent("lists/\(id)-\(kind.rawValue).json")
-    }
-
-    func cachedList(_ kind: MediaKind) -> (total: Int, items: [MediaItem])? {
-        if listsDevice != device?.deviceId {
-            lists = [:]
-            listsDevice = device?.deviceId
-        }
-        if lists[kind] == nil, let file = listFile(kind), let data = try? Data(contentsOf: file) {
-            lists[kind] = try? JSONDecoder().decode(CachedList.self, from: data)
-        }
-        return lists[kind].map { ($0.total, $0.items) }
-    }
-
-    func storeList(_ kind: MediaKind, total: Int, items: [MediaItem]) {
-        lists[kind] = CachedList(total: total, items: items)
-        listsDevice = device?.deviceId
-        guard let file = listFile(kind) else { return }
-        let snapshot = CachedList(total: total, items: Array(items.prefix(1000)))
-        Task.detached(priority: .utility) {
-            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? JSONEncoder().encode(snapshot).write(to: file, options: .atomic)
+    /// 连上后在后台：先把照片、视频列表和手机核对一遍；手机在充电时，再把本机还没有的缩略图补齐。
+    /// 生成缩略图要占手机 CPU，所以不充电时不补（相册里看到哪张再取哪张）
+    private func startBackgroundSync(_ c: PhoneClient, library: MediaLibrary, thumbs: ThumbnailCache) {
+        prefetchTask?.cancel()
+        prefetchTask = Task { [weak self] in
+            for kind in [MediaKind.image, .video] { await library.sync(kind, client: c) }
+            var announced = false
+            // 取不到的（手机上生成不了缩略图的文件）本次连接里不再重试，否则会一直重复请求
+            var failed = Set<String>()
+            while !Task.isCancelled {
+                guard let info = try? await c.info(timeout: 5) else { return }
+                self?.info = info
+                guard info.charging == true else {
+                    try? await Task.sleep(for: .seconds(120))
+                    continue
+                }
+                let missing = [MediaKind.image, .video].flatMap { library.lists[$0]?.items ?? [] }
+                    .filter { !failed.contains($0.cacheKey) && !thumbs.has($0) }
+                guard !missing.isEmpty else {
+                    if announced {
+                        AppLog.write("缩略图已全部存到本机" + (failed.isEmpty ? "" : "（\(failed.count) 张手机上生成不了，跳过）"))
+                    }
+                    return
+                }
+                if !announced {
+                    AppLog.write("手机在充电，后台补齐缩略图：还差 \(missing.count) 张")
+                    announced = true
+                }
+                // 每轮最多 200 张、同时 3 个请求；一轮做完再看一眼手机还在不在充电
+                var queue = missing.prefix(200).makeIterator()
+                let failedNow = await withTaskGroup(of: String?.self) { group in
+                    func add(_ item: MediaItem) {
+                        group.addTask { await thumbs.prefetch(item, client: c) ? nil : item.cacheKey }
+                    }
+                    for _ in 0..<3 { if let item = queue.next() { add(item) } }
+                    var failed: [String] = []
+                    while let result = await group.next() {
+                        if let key = result { failed.append(key) }
+                        if Task.isCancelled { break }
+                        if let item = queue.next() { add(item) }
+                    }
+                    return failed
+                }
+                failed.formUnion(failedNow)
+            }
         }
     }
 
