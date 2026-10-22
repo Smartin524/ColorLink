@@ -38,6 +38,15 @@ object LinkCore {
     var running = false
         private set
 
+    /** Mac 刚连上时的“播报窗口”：流体云只在这几秒里显示，之后自动收起，不常驻。 */
+    private const val ANNOUNCE_MS = 6_000L
+
+    @Volatile
+    private var announceUntil = 0L
+    private var lastSubscribers = 0
+
+    val announcing: Boolean get() = SystemClock.elapsedRealtime() < announceUntil
+
     /** 最近一次连上来的 Mac 的名字，显示在流体云里。 */
     @Volatile
     var macName: String? = null
@@ -84,7 +93,15 @@ object LinkCore {
         // Mac 连上 / 断开时，决定要不要开前台服务（流体云）
         EventBus.onSubscribersChanged = { n ->
             AppLog.i(TAG, if (n > 0) "Mac 已连接（${macName ?: "?"}，共 $n 个连接）" else "Mac 已断开")
-            handler.post { LinkService.refresh(app) }
+            handler.post {
+                if (lastSubscribers == 0 && n > 0) {
+                    // 从没连接到连上：弹一下流体云，到时间自动收起
+                    announceUntil = SystemClock.elapsedRealtime() + ANNOUNCE_MS
+                    handler.postDelayed({ LinkService.refresh(app) }, ANNOUNCE_MS + 100)
+                }
+                lastSubscribers = n
+                LinkService.refresh(app)
+            }
         }
         app.registerReceiver(powerReceiver, IntentFilter(Intent.ACTION_POWER_CONNECTED))
         // 开关热点时敲门：Mac 可能正要连上手机热点，而这对手机来说不算“网络变化”
@@ -154,7 +171,7 @@ object LinkCore {
 
     private fun registerNsd() {
         val info = NsdServiceInfo().apply {
-            serviceName = "ColorLink-${Build.MODEL}"
+            serviceName = "ColorLink-${ColorOS.marketName ?: Build.MODEL}"
             serviceType = SERVICE_TYPE
             port = this@LinkCore.port
             setAttribute("id", Prefs.deviceId(app))

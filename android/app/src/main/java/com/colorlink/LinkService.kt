@@ -10,7 +10,7 @@ private const val TAG = "ColorLink.Service"
 
 /**
  * 前台服务，只在需要时运行，通知栏里的那条通知就是它：
- * - Mac 连着时：通知显示成流体云（左边 Mac 图标、右边绿灯）；
+ * - Mac 刚连上的几秒：通知显示成流体云（左边 Mac 图标、右边绿灯），之后自动收起；
  * - 用户打开了「空闲时也用前台服务保活」，或没开通知使用权时：一条折叠的静默通知。
  * 其余时间（空闲且通知监听在保活）它不运行，通知栏里什么都没有。
  *
@@ -19,8 +19,11 @@ private const val TAG = "ColorLink.Service"
 class LinkService : Service() {
 
     companion object {
-        /** 现在需不需要前台服务：有 Mac 连着、用户要求常驻、或者没有通知监听保活。 */
-        fun needed(ctx: Context) = EventBus.count > 0 || Prefs.keepAlive(ctx) || !NotifyListener.connected
+        /** 现在需不需要前台服务：刚连上正在弹流体云、用户要求常驻、或者没有通知监听保活。 */
+        fun needed(ctx: Context) = showingConnected() || Prefs.keepAlive(ctx) || !NotifyListener.connected
+
+        /** 只在刚连上的几秒里显示流体云 */
+        private fun showingConnected() = EventBus.count > 0 && LinkCore.announcing
 
         /** 根据当前状态启动或停止前台服务。随时可以调用。 */
         fun refresh(ctx: Context) {
@@ -64,7 +67,7 @@ class LinkService : Service() {
 
     /** 状态变了才重新发通知：先撤掉再发，流体云才会重新播放弹出动画。 */
     private fun show() {
-        val connected = EventBus.count > 0
+        val connected = showingConnected()
         if (connected == shownConnected) return
         if (shownConnected != null) stopForeground(STOP_FOREGROUND_REMOVE)
         AppLog.i(TAG, if (connected) "前台服务：显示流体云" else "前台服务：静默保活通知")

@@ -194,5 +194,6 @@ class Api(
         }
     }
 
-    private fun deviceName() = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
+    /** 优先用商品名（OPPO Find X8 Ultra），读不到才用厂商 + 工程型号（OPPO PKJ110） */
+    private fun deviceName() = ColorOS.marketName ?: "${Build.MANUFACTURER} ${Build.MODEL}".trim()
 }

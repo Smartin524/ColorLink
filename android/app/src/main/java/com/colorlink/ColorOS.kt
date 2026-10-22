@@ -39,6 +39,11 @@ object ColorOS {
         prop("ro.build.version.oplusrom") ?: prop("ro.build.version.opporom")
     }
 
+    /** 商品名，例如 "OPPO Find X8 Ultra"；读不到时为 null（工程型号见 Build.MODEL，例如 PKJ110）。 */
+    val marketName: String? by lazy {
+        prop("ro.vendor.oplus.market.name") ?: prop("ro.product.marketname") ?: prop("ro.oppo.market.name")
+    }
+
     private fun prop(key: String): String? = try {
         Runtime.getRuntime().exec(arrayOf("getprop", key)).inputStream.bufferedReader()
             .use { it.readLine()?.trim() }
