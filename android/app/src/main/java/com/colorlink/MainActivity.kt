@@ -114,7 +114,7 @@ class MainActivity : Activity() {
         // 四、运行
         root.addView(header("四、运行"))
         root.addView(Switch(this).apply {
-            text = "空闲时也用前台服务保活（通知栏会多一条折叠的静默通知；只在经常被杀时打开）"
+            text = "空闲时也保持前台运行（更不容易被清理；通知栏底部会有一条折叠的「待命中」通知）"
             isChecked = Prefs.keepAlive(this@MainActivity)
             setOnCheckedChangeListener { _, on ->
                 Prefs.setKeepAlive(this@MainActivity, on)

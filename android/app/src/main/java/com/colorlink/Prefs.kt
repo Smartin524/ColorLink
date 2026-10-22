@@ -32,8 +32,11 @@ object Prefs {
         sp(ctx).edit().putString("pairCode", randomCode()).apply()
     }
 
-    /** 空闲时也用前台服务保活（通知栏会多一条折叠的静默通知）。默认关：平时靠通知监听保活，通知栏里什么都没有。 */
-    fun keepAlive(ctx: Context) = sp(ctx).getBoolean("keepAlive", false)
+    /**
+     * 空闲时也用前台服务保活。默认开：前台服务的进程优先级更高，ColorOS 清理和冻结时都会放过它；
+     * 代价是通知栏底部多一条折叠、不显示状态栏图标、不响不振的「待命中」通知。
+     */
+    fun keepAlive(ctx: Context) = sp(ctx).getBoolean("keepAlive", true)
 
     fun setKeepAlive(ctx: Context, value: Boolean) {
         sp(ctx).edit().putBoolean("keepAlive", value).apply()

@@ -24,8 +24,9 @@ object Notifications {
     private fun createChannels(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
-            NotificationChannel(CH_IDLE, "后台保活（可关闭）", NotificationManager.IMPORTANCE_MIN).apply {
-                description = "只在打开「空闲时也用前台服务保活」时出现，折叠显示、不响不振"
+            // MIN：折叠在通知栏最底部，状态栏不显示图标，不响不振
+            NotificationChannel(CH_IDLE, "待命（保活）", NotificationManager.IMPORTANCE_MIN).apply {
+                description = "没连电脑时让 ColorLink 保持运行，折叠显示、不打扰"
                 setShowBadge(false)
             },
         )
@@ -70,8 +71,9 @@ object Notifications {
         if (state == LinkState.IDLE) {
             return Notification.Builder(ctx, CH_IDLE)
                 .setSmallIcon(R.drawable.ic_link)
-                .setContentTitle("ColorLink 正在后台运行")
-                .setContentText("等待电脑连接 · ${localIpv4(ctx) ?: "无 Wi-Fi"}:${LinkCore.port}")
+                .setContentTitle("ColorLink 待命中")
+                .setContentText("等待电脑连接")
+                .setShowWhen(false)
                 .setContentIntent(openApp(ctx))
                 .setOngoing(true)
                 .build()
