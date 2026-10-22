@@ -182,8 +182,43 @@ for (name, urls, expected) in cases {
 pb.clearContents()
 pb.setData(Data([0x89, 0x50, 0x4E, 0x47]), forType: .png)
 guard DragContent.hasSendableContent(pb) else { fail("只有图片数据（浏览器拖图）时应弹面板") }
-pb.releaseGlobally()
 ok("\(cases.count + 1) 种情况全部正确：文件夹 / .app 不弹，文件、混合、纯图片数据会弹")
+
+// ⑨-2 一次拖很多张：每个文件都在、只出现一次、顺序不变（曾经同一秒内的图片互相覆盖，导致重复和漏发）
+step("一次拖 24 张图片 + 1 个文件夹")
+let batchDir = FileManager.default.temporaryDirectory.appendingPathComponent("clcheck-drag-\(UUID().uuidString)")
+try FileManager.default.createDirectory(at: batchDir, withIntermediateDirectories: true)
+let photos = try (1...24).map { i -> URL in
+    let url = batchDir.appendingPathComponent(String(format: "%02d_风景.jpg", i))
+    try Data("photo \(i)".utf8).write(to: url)
+    return url
+}
+pb.clearContents()
+pb.writeObjects((photos + [batchDir, photos[3]]) as [NSURL])
+let picked = DragContent.files(pb)
+guard picked.map(\.lastPathComponent) == photos.map(\.lastPathComponent) else {
+    fail("应得到 24 个不重复的文件，实际 \(picked.count) 个：\(picked.map(\.lastPathComponent))")
+}
+ok("24 个文件全部取到，没有重复，文件夹被跳过")
+
+// 只有图片数据（浏览器拖图）：每张存成不同的文件，内容各不相同
+let providers = (1...5).map { i -> NSItemProvider in
+    let image = NSImage(size: NSSize(width: 10 * i, height: 10 * i), flipped: false) { r in
+        NSColor(calibratedHue: CGFloat(i) / 6, saturation: 1, brightness: 1, alpha: 1).setFill()
+        r.fill()
+        return true
+    }
+    return NSItemProvider(object: image)
+}
+let saved = await DragContent.imageFiles(from: providers)
+let contents = Set(saved.compactMap { try? Data(contentsOf: $0) })
+guard saved.count == 5, Set(saved.map(\.path)).count == 5, contents.count == 5 else {
+    fail("5 张图片数据应存成 5 个不同的文件，实际 \(saved.count) 个、内容不同的 \(contents.count) 个")
+}
+ok("5 张图片数据存成 5 个不同的文件：\(saved.map(\.lastPathComponent).joined(separator: "、"))")
+try? FileManager.default.removeItem(at: batchDir)
+saved.first.map { try? FileManager.default.removeItem(at: $0.deletingLastPathComponent()) }
+pb.releaseGlobally()
 
 // ⑩ 事件流
 step("事件流")

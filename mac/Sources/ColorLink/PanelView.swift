@@ -25,7 +25,13 @@ struct PanelView: View {
         .animation(.easeOut(duration: 0.15), value: ui.dropTargeted)
         .contentShape(Rectangle())
         .onDrop(of: [.fileURL, .image], isTargeted: $ui.dropTargeted) { providers in
-            Task { await link.send(await DropFiles.urls(from: providers)) }
+            // 松手的这一刻拖拽剪贴板里就是这次拖的东西，先同步读出文件
+            let files = DragContent.files(NSPasteboard(name: .drag))
+            Task {
+                let urls = files.isEmpty ? await DragContent.imageFiles(from: providers) : files
+                AppLog.write("拖入 \(providers.count) 项：\(files.isEmpty ? "图片数据 \(urls.count) 张" : "文件 \(files.count) 个")")
+                await link.send(urls)
+            }
             return true
         }
         .frame(width: 256)
@@ -269,30 +275,3 @@ private struct HalfButton: View {
     }
 }
 
-enum DropFiles {
-    /// 取出拖进来的文件；从浏览器等地方拖来的只有图片数据，先存成临时 PNG
-    static func urls(from providers: [NSItemProvider]) async -> [URL] {
-        var urls: [URL] = []
-        for p in providers {
-            if p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier),
-               let data = try? await p.loadItem(forTypeIdentifier: UTType.fileURL.identifier) as? Data,
-               let url = URL(dataRepresentation: data, relativeTo: nil) {
-                urls.append(url)
-            } else if p.canLoadObject(ofClass: NSImage.self),
-                      let image = await loadImage(p),
-                      let tiff = image.tiffRepresentation,
-                      let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
-                let stamp = Date().formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false).timeSeparator(.omitted))
-                let url = FileManager.default.temporaryDirectory.appendingPathComponent("Mac 图片 \(stamp).png")
-                if (try? png.write(to: url)) != nil { urls.append(url) }
-            }
-        }
-        return urls
-    }
-
-    private static func loadImage(_ p: NSItemProvider) async -> NSImage? {
-        await withCheckedContinuation { cont in
-            _ = p.loadObject(ofClass: NSImage.self) { obj, _ in cont.resume(returning: obj as? NSImage) }
-        }
-    }
-}
