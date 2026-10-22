@@ -23,7 +23,7 @@ struct GalleryView: View {
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
             .navigationTitle("手机相册")
             .navigationSubtitle(subtitle)
             .toolbar {
@@ -92,18 +92,21 @@ struct GalleryView: View {
                                 .onAppear { if item == items.last { Task { await loadMore() } } }
                         }
                     } header: {
+                        // 悬浮的玻璃小胶囊，滚动时吸在顶部（和「照片」App 一样）
                         Text(section.title)
-                            .font(.headline)
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .glassCapsule()
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 8)
-                            .background(.bar)
+                            .padding(.vertical, 6)
                     }
                 }
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 12)
         }
+        .softTopEdge()
         .focusable()
         .focusEffectDisabled()
         .onKeyPress(.escape) {
@@ -361,9 +364,9 @@ struct ThumbCell: View {
                         .padding(6)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: 10)
                     .strokeBorder(Color.accentColor, lineWidth: selected ? 2 : 0)
             )
             .contentShape(Rectangle())

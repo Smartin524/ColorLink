@@ -17,10 +17,9 @@ struct PanelView: View {
                 PhotoStrip()
             }
         }
-        .padding(10)
-        .frame(width: 250)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.5)))
+        .padding(12)
+        .frame(width: 256)
+        .glassBackground(cornerRadius: 22)
         .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -120,11 +119,11 @@ struct PhotoStrip: View {
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: 9)
+            RoundedRectangle(cornerRadius: 13)
                 .fill(target ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 9)
+            RoundedRectangle(cornerRadius: 13)
                 .strokeBorder(target ? Color.accentColor : .clear, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
         )
         .animation(.easeOut(duration: 0.15), value: target)
@@ -168,8 +167,9 @@ struct RecentThumb: View {
                     case .failed: badge("失败", "xmark.circle.fill")
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .contentShape(RoundedRectangle(cornerRadius: 6))
+                // 外框 22、内边距 12 + 5，缩略图圆角取 8，和外框保持同心
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }

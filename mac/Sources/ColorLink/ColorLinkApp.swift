@@ -78,7 +78,10 @@ final class Windows {
             return w
         }
         var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable]
-        if resizable { style.insert(.resizable) }
+        if resizable {
+            // 内容铺到标题栏下面，工具栏和红绿灯浮在内容上（macOS 26 液态玻璃的标准窗口形态）
+            style.formUnion([.resizable, .fullSizeContentView])
+        }
         let w = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: style, backing: .buffered, defer: false)
         w.title = title
         w.isReleasedWhenClosed = false
