@@ -44,7 +44,7 @@ struct PanelView: View {
                     } label: {
                         Image(systemName: "photo.on.rectangle")
                             .font(.body)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.primary)
                     }
                     .buttonStyle(.borderless)
                     .help("打开相册")
@@ -71,7 +71,7 @@ struct PanelView: View {
         } label: {
             Image(systemName: "ellipsis.circle")
                 .font(.body)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
