@@ -159,3 +159,7 @@ for (name, px) in densities {
     write(render(px: px, background: nil, logoScale: 0.42 / Logo.extent),
           "android/app/src/main/res/drawable-\(name)/ic_launcher_foreground.png")
 }
+
+// 设置页首页用的纯链环（透明背景、高清，直接融进页面背景）
+write(render(px: 600, background: nil, logoScale: 0.92 / Logo.extent),
+      "android/app/src/main/res/drawable-nodpi/ic_logo.png")

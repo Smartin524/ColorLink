@@ -47,6 +47,8 @@ class MainActivity : Activity() {
     }
 
     private lateinit var statusDot: View
+    private lateinit var logo: ImageView
+    private var logoConnected: Boolean? = null
     private lateinit var hero: android.widget.FrameLayout
     private lateinit var runText: TextView
     private lateinit var codeText: TextView
@@ -156,10 +158,12 @@ class MainActivity : Activity() {
         addView(LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            addView(ImageView(context).apply {
-                setImageResource(R.mipmap.ic_launcher)
-                layoutParams = LinearLayout.LayoutParams(dp(96), dp(96)).apply { bottomMargin = dp(16) }
-            })
+            // 只画链环本身，不加图标底板，直接融在背景里
+            logo = ImageView(context).apply {
+                setImageResource(R.drawable.ic_logo)
+                layoutParams = LinearLayout.LayoutParams(dp(128), dp(128)).apply { bottomMargin = dp(12) }
+            }
+            addView(logo)
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -244,6 +248,14 @@ class MainActivity : Activity() {
         val connected = EventBus.count > 0
         val running = LinkCore.running
         statusDot.background = dot(if (connected) green else if (running) secondary else red, size = 10)
+        // 没连接时链环变灰
+        if (connected != logoConnected) {
+            logoConnected = connected
+            logo.colorFilter = if (connected) null else android.graphics.ColorMatrixColorFilter(
+                android.graphics.ColorMatrix().apply { setSaturation(0f) },
+            )
+            logo.imageAlpha = if (connected) 255 else 140
+        }
         statusDot.contentDescription = when {
             connected -> "已连接 ${LinkCore.macName ?: "Mac"}"
             running -> "待命中"
