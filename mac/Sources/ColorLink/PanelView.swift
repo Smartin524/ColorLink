@@ -19,7 +19,7 @@ struct PanelView: View {
         }
         .padding(12)
         .frame(width: 256)
-        .glassBackground(cornerRadius: 22)
+        .glassEffect(.regular, in: .rect(cornerRadius: 22))
         .fixedSize(horizontal: false, vertical: true)
     }
 

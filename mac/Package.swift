@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "ColorLink",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS("26.0")], // 只给自己用，直接用液态玻璃等新接口
     targets: [
         // 与界面无关的部分：协议客户端、发现、缓存、配对存储
         .target(name: "ColorLinkCore"),

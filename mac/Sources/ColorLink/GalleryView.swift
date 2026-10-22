@@ -97,7 +97,7 @@ struct GalleryView: View {
                             .font(.subheadline.weight(.semibold))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .glassCapsule()
+                            .glassEffect(.regular, in: .capsule)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.vertical, 6)
                     }
@@ -106,7 +106,7 @@ struct GalleryView: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 12)
         }
-        .softTopEdge()
+        .scrollEdgeEffectStyle(.soft, for: .top)
         .focusable()
         .focusEffectDisabled()
         .onKeyPress(.escape) {
