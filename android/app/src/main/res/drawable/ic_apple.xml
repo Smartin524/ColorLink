@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ColorLink 链环的单色版（几何同 tools/make-icons.swift），用作通知栏小图标和主题图标 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="1024"
+    android:viewportHeight="1024">
+    <group
+        android:pivotX="512"
+        android:pivotY="512"
+        android:rotation="-45">
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M252 392 H452 A120 120 0 0 1 452 632 H252 A120 120 0 0 1 252 392 Z"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="64" />
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M572 392 H772 A120 120 0 0 1 772 632 H572 A120 120 0 0 1 572 392 Z"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="64" />
+    </group>
+</vector>

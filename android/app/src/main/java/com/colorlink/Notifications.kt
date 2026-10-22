@@ -6,7 +6,6 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.graphics.drawable.Icon
 import android.os.Build
 import android.provider.Settings
 import android.util.Size
@@ -79,7 +78,7 @@ object Notifications {
         }
         val announcing = state == LinkState.ANNOUNCING
         val b = Notification.Builder(ctx, if (announcing) CH_CONNECTED else CH_LINKED)
-            .setSmallIcon(R.drawable.ic_mac) // 流体云胶囊左边的图标
+            .setSmallIcon(R.drawable.ic_apple) // 流体云胶囊左边的图标
             .setContentTitle("ColorLink 已连接")
             .setShowWhen(false)
             .setContentIntent(openApp(ctx))
@@ -124,8 +123,6 @@ object Notifications {
  * 它们都是公开 API，不是隐藏接口；低版本系统上直接跳过，退化成普通通知。
  */
 object LiveUpdate {
-    private const val GREEN = 0xFF34C759.toInt()
-
     /** null 表示系统不支持实况通知；false 表示用户在通知设置里关掉了。 */
     fun canPromote(ctx: Context): Boolean? {
         if (Build.VERSION.SDK_INT < 36) return null
@@ -137,25 +134,12 @@ object LiveUpdate {
         }
     }
 
+    /**
+     * 请求把通知提升为实况通知（ColorOS 显示为流体云）。不加进度条样式，展开后只显示标题；
+     * Android 规定普通样式也可以提升，如果 ColorOS 不认，需要换回 ProgressStyle。
+     */
     fun apply(ctx: Context, b: Notification.Builder, shortText: String) {
         if (Build.VERSION.SDK_INT < 36) return
-        // 一条满格的绿色进度条：左端 Mac 图标，右端绿灯
-        try {
-            val styleCls = Class.forName("android.app.Notification\$ProgressStyle")
-            val segCls = Class.forName("android.app.Notification\$ProgressStyle\$Segment")
-            val segment = segCls.getConstructor(Int::class.javaPrimitiveType).newInstance(100)
-            segCls.getMethod("setColor", Int::class.javaPrimitiveType).invoke(segment, GREEN)
-            val style = styleCls.getConstructor().newInstance()
-            styleCls.getMethod("setProgressSegments", List::class.java).invoke(style, listOf(segment))
-            styleCls.getMethod("setProgress", Int::class.javaPrimitiveType).invoke(style, 100)
-            styleCls.getMethod("setProgressStartIcon", Icon::class.java)
-                .invoke(style, Icon.createWithResource(ctx, R.drawable.ic_mac))
-            styleCls.getMethod("setProgressEndIcon", Icon::class.java)
-                .invoke(style, Icon.createWithResource(ctx, R.drawable.ic_dot_green))
-            b.setStyle(style as Notification.Style)
-        } catch (e: Exception) {
-            AppLog.w(TAG, "ProgressStyle 不可用，用普通样式", e)
-        }
         try {
             val cls = Notification.Builder::class.java
             cls.getMethod("setShortCriticalText", String::class.java).invoke(b, shortText) // 胶囊里的文字
