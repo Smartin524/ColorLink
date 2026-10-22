@@ -1,7 +1,11 @@
+import AppKit
 import ColorLinkCore
 import SwiftUI
 
 /// 手机相册：照片 / 视频按日期分组成网格，录音是列表。
+///
+/// 交互：左键单击弹出操作菜单；⌘ 单击加选 / 取消，⇧ 单击连续选择；⌘A 全选，Esc 取消。
+/// 选中多项时点其中一张，菜单作用于全部选中项。右键菜单同样可用。
 struct GalleryView: View {
     @EnvironmentObject var link: LinkController
 
@@ -10,57 +14,43 @@ struct GalleryView: View {
     @State private var total = 0
     @State private var loading = false
     @State private var message: String?
-    @State private var selection: MediaItem.ID?
+    @State private var selection = Set<MediaItem.ID>()
+    /// ⇧ 连续选择的起点
+    @State private var anchor: MediaItem.ID?
 
     private let pageSize = 200
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            content
-        }
-        .background(Color(nsColor: .windowBackgroundColor))
-        .task(id: "\(kind.rawValue)-\(link.connectionID)") { await reload() }
-    }
-
-    // MARK: - 顶部
-
-    private var header: some View {
-        HStack(spacing: 12) {
-            Text(countText)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-                .frame(width: 160, alignment: .leading)
-            Spacer()
-            Picker("", selection: $kind) {
-                ForEach(MediaKind.allCases, id: \.self) { Text($0.title).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 240)
-            Spacer()
-            HStack(spacing: 8) {
-                if loading { ProgressView().controlSize(.small) }
-                Button {
-                    Task { await reload() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
+        content
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .navigationTitle("手机相册")
+            .navigationSubtitle(subtitle)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Picker("类型", selection: $kind) {
+                        ForEach(MediaKind.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
                 }
-                .buttonStyle(.borderless)
-                .help("刷新")
-                .disabled(link.client == nil)
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Task { await reload() }
+                    } label: {
+                        Label("刷新", systemImage: "arrow.clockwise")
+                    }
+                    .help("刷新")
+                    .disabled(link.client == nil || loading)
+                }
             }
-            .frame(width: 160, alignment: .trailing)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+            .task(id: "\(kind.rawValue)-\(link.connectionID)") { await reload() }
     }
 
-    private var countText: String {
+    private var subtitle: String {
         if let message { return message }
-        guard total > 0 else { return link.client == nil ? "" : "加载中…" }
+        if !selection.isEmpty { return "已选 \(selection.count) 项" }
+        guard total > 0 else { return link.client == nil ? "手机未连接" : "加载中…" }
         let unit = kind == .image ? "张" : "个"
         return items.count < total ? "\(items.count) / \(total) \(unit)" : "\(total) \(unit)"
     }
@@ -74,7 +64,7 @@ struct GalleryView: View {
                                    description: Text("连上以后这里会自动刷新"))
         } else if items.isEmpty {
             if loading || total > 0 {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                ProgressView()
             } else {
                 ContentUnavailableView("没有\(kind.title)", systemImage: kind == .audio ? "waveform" : "photo.on.rectangle")
             }
@@ -96,10 +86,9 @@ struct GalleryView: View {
                 ForEach(sections, id: \.title) { section in
                     Section {
                         ForEach(section.items) { item in
-                            ThumbCell(item: item, selected: selection == item.id)
-                                .onTapGesture(count: 2) { open(item) }
-                                .simultaneousGesture(TapGesture().onEnded { selection = item.id })
-                                .contextMenu { menu(for: item) }
+                            ThumbCell(item: item, selected: selection.contains(item.id))
+                                .onTapGesture { click(item) }
+                                .contextMenu { contextMenu(for: item) }
                                 .onAppear { if item == items.last { Task { await loadMore() } } }
                         }
                     } header: {
@@ -115,31 +104,98 @@ struct GalleryView: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 12)
         }
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress(.escape) {
+            selection.removeAll()
+            return .handled
+        }
+        .onKeyPress(characters: ["a"]) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
+            selection = Set(items.map(\.id))
+            return .handled
+        }
     }
 
     private var audioList: some View {
+        // 录音用系统列表自带的多选：单击选中，⌘ / ⇧ 多选，双击播放，右键菜单
         List(selection: $selection) {
             ForEach(items) { item in
                 AudioRow(item: item)
                     .tag(item.id)
-                    .contextMenu { menu(for: item) }
                     .onAppear { if item == items.last { Task { await loadMore() } } }
             }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
-        .contextMenu(forSelectionType: MediaItem.ID.self) { _ in } primaryAction: { ids in
-            if let id = ids.first, let item = items.first(where: { $0.id == id }) { open(item) }
+        .contextMenu(forSelectionType: MediaItem.ID.self) { ids in
+            menuButtons(for: items.filter { ids.contains($0.id) })
+        } primaryAction: { ids in
+            items.filter { ids.contains($0.id) }.prefix(5).forEach(open)
         }
     }
 
-    @ViewBuilder
-    private func menu(for item: MediaItem) -> some View {
-        Button("打开") { open(item) }
-        if item.kind == .image {
-            Button("复制图片") { Task { _ = await link.copyToClipboard(item) } }
+    // MARK: - 点击与选择
+
+    private func click(_ item: MediaItem) {
+        let mods = NSEvent.modifierFlags
+        if mods.contains(.command) {
+            if selection.contains(item.id) { selection.remove(item.id) } else { selection.insert(item.id) }
+            anchor = item.id
+        } else if mods.contains(.shift), let a = anchor,
+                  let i = items.firstIndex(where: { $0.id == a }),
+                  let j = items.firstIndex(where: { $0.id == item.id }) {
+            selection.formUnion(items[min(i, j)...max(i, j)].map(\.id))
+        } else {
+            // 普通单击：点在已选中的多项里，菜单作用于全部选中项；否则只选这一张
+            if !selection.contains(item.id) { selection = [item.id] }
+            anchor = item.id
+            showMenu(for: targets(for: item))
         }
-        Button("保存到「下载/ColorLink」") { save(item, reveal: false) }
-        Button("保存并在 Finder 中显示") { save(item, reveal: true) }
+    }
+
+    /// 右键、左键菜单作用的对象
+    private func targets(for item: MediaItem) -> [MediaItem] {
+        selection.contains(item.id) ? items.filter { selection.contains($0.id) } : [item]
+    }
+
+    @ViewBuilder
+    private func contextMenu(for item: MediaItem) -> some View {
+        menuButtons(for: targets(for: item))
+    }
+
+    @ViewBuilder
+    private func menuButtons(for targets: [MediaItem]) -> some View {
+        ForEach(actions(for: targets), id: \.title) { a in
+            Button(a.title, action: a.run)
+        }
+    }
+
+    private struct Action {
+        let title: String
+        let run: () -> Void
+    }
+
+    private func actions(for targets: [MediaItem]) -> [Action] {
+        guard !targets.isEmpty else { return [] }
+        let n = targets.count
+        let suffix = n == 1 ? "" : " \(n) 项"
+        var list = [Action(title: n == 1 ? "打开" : "打开\(suffix)") { targets.prefix(10).forEach(open) }]
+        list.append(Action(title: n == 1 && targets[0].kind == .image ? "复制图片" : "复制\(suffix)") {
+            Task { _ = await link.copyToClipboard(targets) }
+        })
+        list.append(Action(title: "保存到「下载/ColorLink」") { save(targets, reveal: false) })
+        list.append(Action(title: "保存并在 Finder 中显示") { save(targets, reveal: true) })
+        return list
+    }
+
+    /// 左键菜单：在鼠标位置弹出原生菜单
+    private func showMenu(for targets: [MediaItem]) {
+        let menu = NSMenu()
+        for a in actions(for: targets) {
+            menu.addItem(ClosureMenuItem(title: a.title, action: a.run))
+            if a.title.hasPrefix("复制") { menu.addItem(.separator()) }
+        }
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
     }
 
     // MARK: - 按日期分组
@@ -155,8 +211,7 @@ struct GalleryView: View {
         var currentKey: DateComponents?
         var bucket: [MediaItem] = []
         for item in items {
-            let date = Date(timeIntervalSince1970: TimeInterval(item.added ?? item.modified))
-            let key = cal.dateComponents([.year, .month, .day], from: date)
+            let key = cal.dateComponents([.year, .month, .day], from: Self.date(item))
             if key != currentKey, !bucket.isEmpty {
                 result.append(DaySection(title: Self.dayTitle(bucket[0]), items: bucket))
                 bucket = []
@@ -168,8 +223,12 @@ struct GalleryView: View {
         return result
     }
 
+    private static func date(_ item: MediaItem) -> Date {
+        Date(timeIntervalSince1970: TimeInterval(item.added ?? item.modified))
+    }
+
     private static func dayTitle(_ item: MediaItem) -> String {
-        let date = Date(timeIntervalSince1970: TimeInterval(item.added ?? item.modified))
+        let date = date(item)
         let cal = Calendar.current
         if cal.isDateInToday(date) { return "今天" }
         if cal.isDateInYesterday(date) { return "昨天" }
@@ -185,7 +244,8 @@ struct GalleryView: View {
     private func reload() async {
         items = []
         total = 0
-        selection = nil
+        selection.removeAll()
+        anchor = nil
         await loadMore()
     }
 
@@ -214,25 +274,42 @@ struct GalleryView: View {
         }
         Task {
             do {
-                let url = try await c.download(item, to: AppDirs.caches.appendingPathComponent("open"))
-                NSWorkspace.shared.open(url)
+                NSWorkspace.shared.open(try await link.original(item))
             } catch {
                 message = error.localizedDescription
             }
         }
     }
 
-    private func save(_ item: MediaItem, reveal: Bool) {
+    private func save(_ targets: [MediaItem], reveal: Bool) {
         guard let c = link.client else { return }
         Task {
-            do {
-                let url = try await c.download(item, to: AppDirs.downloads)
-                if reveal { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-            } catch {
-                message = error.localizedDescription
+            var saved: [URL] = []
+            for item in targets {
+                do {
+                    saved.append(try await c.download(item, to: AppDirs.downloads))
+                } catch {
+                    message = error.localizedDescription
+                }
             }
+            if reveal, !saved.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(saved) }
         }
     }
+}
+
+/// 用闭包响应的菜单项
+final class ClosureMenuItem: NSMenuItem {
+    private let handler: () -> Void
+
+    init(title: String, action handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(fire), keyEquivalent: "")
+        target = self
+    }
+
+    required init(coder: NSCoder) { fatalError() }
+
+    @objc private func fire() { handler() }
 }
 
 struct ThumbCell: View {
@@ -271,13 +348,24 @@ struct ThumbCell: View {
                     .background(LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom))
                 }
             }
+            .overlay {
+                if selected { Color.accentColor.opacity(0.18) }
+            }
+            .overlay(alignment: .topTrailing) {
+                // 选中时右上角打勾，和系统「照片」一致
+                if selected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title3)
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, Color.accentColor)
+                        .padding(6)
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(Color.accentColor, lineWidth: selected ? 3 : 0)
+                    .strokeBorder(Color.accentColor, lineWidth: selected ? 2 : 0)
             )
-            .scaleEffect(hovering ? 1.015 : 1)
-            .animation(.easeOut(duration: 0.12), value: hovering)
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
             .help(item.name)

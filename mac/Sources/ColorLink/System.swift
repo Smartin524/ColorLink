@@ -17,6 +17,12 @@ enum Clipboard {
         return pb.writeObjects([item])
     }
 
+    static func copyFiles(_ urls: [URL]) -> Bool {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        return pb.writeObjects(urls as [NSURL])
+    }
+
     static func copyText(_ text: String) {
         let pb = NSPasteboard.general
         pb.clearContents()

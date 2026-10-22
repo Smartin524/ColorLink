@@ -304,20 +304,31 @@ final class LinkController: ObservableObject {
         }
     }
 
-    /// 下载原图并放进剪贴板。同一张图只下载一次。
+    /// 原图的本地缓存（以原文件名保存，复制成文件时名字也对）。同一张图只下载一次。
+    func original(_ item: MediaItem) async throws -> URL {
+        guard let c = client else { throw PhoneError.streamEnded }
+        let dir = AppDirs.caches.appendingPathComponent("originals/\(item.cacheKey)")
+        let cached = dir.appendingPathComponent(item.name)
+        if FileManager.default.fileExists(atPath: cached.path) { return cached }
+        let tmp = try await c.download(item, to: AppDirs.caches.appendingPathComponent("originals/tmp"))
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? FileManager.default.removeItem(at: cached)
+        try FileManager.default.moveItem(at: tmp, to: cached)
+        return cached
+    }
+
+    /// 下载原图并放进剪贴板
     func copyToClipboard(_ item: MediaItem) async -> Bool {
-        guard let c = client else { return false }
-        let dir = AppDirs.caches.appendingPathComponent("originals")
-        let ext = (item.name as NSString).pathExtension
-        let cached = dir.appendingPathComponent(item.cacheKey + (ext.isEmpty ? "" : ".\(ext)"))
+        await copyToClipboard([item])
+    }
+
+    /// 一张图片：放图片数据，哪里都能粘贴；多项：放文件，粘贴到 Finder、微信等会是多个文件
+    func copyToClipboard(_ items: [MediaItem]) async -> Bool {
         do {
-            if !FileManager.default.fileExists(atPath: cached.path) {
-                let tmp = try await c.download(item, to: dir.appendingPathComponent("tmp"))
-                try? FileManager.default.removeItem(at: cached)
-                try FileManager.default.moveItem(at: tmp, to: cached)
-            }
-            let ok = Clipboard.copyImage(at: cached)
-            lastEvent = ok ? "已复制 \(item.name)" : "复制失败"
+            var urls: [URL] = []
+            for item in items { urls.append(try await original(item)) }
+            let ok = urls.count == 1 && items[0].kind == .image ? Clipboard.copyImage(at: urls[0]) : Clipboard.copyFiles(urls)
+            lastEvent = ok ? "已复制 \(items.count == 1 ? items[0].name : "\(items.count) 项")" : "复制失败"
             return ok
         } catch {
             lastEvent = "下载失败：\(error.localizedDescription)"

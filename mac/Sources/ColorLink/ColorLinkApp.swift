@@ -85,6 +85,9 @@ final class Windows {
         let host = NSHostingController(rootView: content())
         // 可调大小的窗口不要让 SwiftUI 按内容的最小尺寸去压窗口（相册曾因此缩成一条）
         if resizable { host.sizingOptions = [] }
+        // 让 SwiftUI 的 .toolbar / .navigationSubtitle 变成原生窗口工具栏和副标题
+        host.sceneBridgingOptions = [.toolbars, .title]
+        w.toolbarStyle = .unified
         w.contentViewController = host
         if resizable {
             w.setContentSize(size)
