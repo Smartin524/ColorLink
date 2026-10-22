@@ -47,7 +47,7 @@ class MainActivity : Activity() {
     }
 
     private lateinit var statusDot: View
-    private lateinit var logo: ImageView
+    private lateinit var logo: LinkLogoView
     private var logoConnected: Boolean? = null
     private lateinit var hero: android.widget.FrameLayout
     private lateinit var runText: TextView
@@ -135,6 +135,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        logoConnected = null // 每次回到页面都按当前状态重新展示（连着就再播放一次扣合动画）
         handler.post(tick)
     }
 
@@ -159,9 +160,8 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             // 只画链环本身，不加图标底板，直接融在背景里
-            logo = ImageView(context).apply {
-                setImageResource(R.drawable.ic_logo)
-                layoutParams = LinearLayout.LayoutParams(dp(128), dp(128)).apply { bottomMargin = dp(12) }
+            logo = LinkLogoView(context).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(140), dp(140)).apply { bottomMargin = dp(8) }
             }
             addView(logo)
             addView(LinearLayout(context).apply {
@@ -248,13 +248,10 @@ class MainActivity : Activity() {
         val connected = EventBus.count > 0
         val running = LinkCore.running
         statusDot.background = dot(if (connected) green else if (running) secondary else red, size = 10)
-        // 没连接时链环变灰
+        // 连上时链环长出并扣合；没连接时是静止的灰色链环
         if (connected != logoConnected) {
             logoConnected = connected
-            logo.colorFilter = if (connected) null else android.graphics.ColorMatrixColorFilter(
-                android.graphics.ColorMatrix().apply { setSaturation(0f) },
-            )
-            logo.imageAlpha = if (connected) 255 else 140
+            if (connected) logo.playConnect() else logo.showIdle()
         }
         statusDot.contentDescription = when {
             connected -> "已连接 ${LinkCore.macName ?: "Mac"}"

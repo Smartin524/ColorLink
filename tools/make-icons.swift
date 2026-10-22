@@ -7,7 +7,7 @@
 //   mac/Resources/AppIcon.icns                                     由日间版经 make-mac-icon.swift 生成
 //   android/app/src/main/res/drawable-*dpi/ic_launcher_foreground.png  自适应图标前景（透明）
 //
-// 造型参数都在 Logo 里，Mac 状态栏（BrandIcon.swift）和通知栏（ic_link.xml）用的是同一组几何。
+// 造型参数都在 Logo 里，Mac 状态栏（BrandIcon.swift）、通知栏（ic_link.xml）和手机首页动画（LinkLogoView.kt）用的是同一组几何。
 import AppKit
 
 enum Logo {
@@ -159,7 +159,3 @@ for (name, px) in densities {
     write(render(px: px, background: nil, logoScale: 0.42 / Logo.extent),
           "android/app/src/main/res/drawable-\(name)/ic_launcher_foreground.png")
 }
-
-// 设置页首页用的纯链环（透明背景、高清，直接融进页面背景）
-write(render(px: 600, background: nil, logoScale: 0.92 / Logo.extent),
-      "android/app/src/main/res/drawable-nodpi/ic_logo.png")
