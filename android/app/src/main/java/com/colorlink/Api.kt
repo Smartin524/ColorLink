@@ -23,6 +23,10 @@ class Api(
     fun handle(req: Request): Response {
         onActivity()
         if (req.path == "/api/pair") return pair(req)
+        if (req.path == "/api/logs") {
+            return if (authorized(req)) Response.bytes(AppLog.dump().toByteArray(), "text/plain; charset=utf-8")
+            else Response.text(401, "unauthorized")
+        }
         // 不需要令牌：Mac 先用它核对“这个地址上的是不是我配对过的手机”，确认了才发令牌
         if (req.path == "/api/id") return Response.json(JSONObject().put("deviceId", Prefs.deviceId(ctx)).put("name", deviceName()))
         if (!authorized(req)) return Response.text(401, "unauthorized")
@@ -52,6 +56,7 @@ class Api(
         val code = req.q("code") ?: return Response.text(400, "missing code")
         if (!MessageDigest.isEqual(code.toByteArray(), Prefs.pairCode(ctx).toByteArray())) {
             failedPairs++
+            AppLog.w("ColorLink.Api", "配对码错误（${req.remote.hostAddress}，第 $failedPairs 次）")
             if (failedPairs >= 5) {
                 Prefs.resetPairCode(ctx)
                 failedPairs = 0
@@ -60,6 +65,7 @@ class Api(
         }
         failedPairs = 0
         Prefs.resetPairCode(ctx)
+        AppLog.i("ColorLink.Api", "与「${req.q("client") ?: "?"}」配对成功（${req.remote.hostAddress}）")
         return Response.json(
             JSONObject()
                 .put("token", Prefs.token(ctx))
@@ -174,6 +180,7 @@ class Api(
         val mime = req.q("mime")?.takeIf { it.contains('/') }
             ?: URLConnection.guessContentTypeFromName(name) ?: "application/octet-stream"
         val saved = media.save(name, mime, req.body)
+        AppLog.i("ColorLink.Api", "收到 Mac 发来的文件：$mime，保存到 ${saved.dir}")
         Notifications.received(ctx, saved)
         return Response.json(saved.json)
     }

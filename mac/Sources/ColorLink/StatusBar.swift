@@ -124,6 +124,7 @@ final class StatusBarController: NSObject {
         guard pb.changeCount != dragBaseline else { return }
         dragBaseline = pb.changeCount
         guard DragContent.hasSendableContent(pb) else { return }
+        AppLog.write("检测到拖拽文件，弹出面板")
         show(dropMode: true)
         // 鼠标松开（拖拽结束）时收起；正在发送就等发完
         dragEndTimer?.invalidate()

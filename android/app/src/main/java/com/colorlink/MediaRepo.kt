@@ -13,7 +13,6 @@ import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
 import android.provider.MediaStore.MediaColumns
-import android.util.Log
 import android.util.Size
 import org.json.JSONArray
 import org.json.JSONObject
@@ -100,7 +99,7 @@ class MediaRepo(private val ctx: Context) {
     fun open(kind: Kind, id: Long): ParcelFileDescriptor? = try {
         cr.openFileDescriptor(ContentUris.withAppendedId(kind.uri, id), "r")
     } catch (e: Exception) {
-        Log.w(TAG, "打开文件失败 $kind/$id", e)
+        AppLog.w(TAG, "打开文件失败 $kind/$id", e)
         null
     }
 
@@ -129,13 +128,13 @@ class MediaRepo(private val ctx: Context) {
     /** 充电时把最近的照片、视频缩略图提前生成好，Mac 打开相册时直接读缓存。 */
     fun prewarmIfCharging(images: Int = 600, videos: Int = 200) {
         if (!isCharging()) return
-        Log.i(TAG, "充电中，开始预生成缩略图")
+        AppLog.i(TAG, "充电中，开始预生成缩略图")
         var made = 0
         for ((kind, n) in listOf(Kind.IMAGE to images, Kind.VIDEO to videos)) {
             val items = list(kind, 0, n).getJSONArray("items")
             for (i in 0 until items.length()) {
                 if (!isCharging()) {
-                    Log.i(TAG, "已拔掉电源，暂停预生成（已完成 $made 张）")
+                    AppLog.i(TAG, "已拔掉电源，暂停预生成（已完成 $made 张）")
                     return
                 }
                 val it = items.getJSONObject(i)
@@ -143,7 +142,7 @@ class MediaRepo(private val ctx: Context) {
                 made++
             }
         }
-        Log.i(TAG, "预生成完成，共 $made 张")
+        AppLog.i(TAG, "预生成完成，共 $made 张")
     }
 
     class NewImage(val json: JSONObject, val added: Long, val isScreenshot: Boolean)

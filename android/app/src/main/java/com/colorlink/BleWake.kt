@@ -10,7 +10,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.ParcelUuid
-import android.util.Log
 
 private const val TAG = "ColorLink.Ble"
 
@@ -35,7 +34,7 @@ object BleWake {
     /** 返回是否注册成功。重复调用没关系，系统会替换掉旧的。 */
     fun register(ctx: Context): Boolean {
         if (!hasPermission(ctx)) {
-            Log.i(TAG, "未授予蓝牙扫描权限（或系统低于 Android 12），跳过蓝牙唤醒")
+            AppLog.i(TAG, "未授予蓝牙扫描权限（或系统低于 Android 12），跳过蓝牙唤醒")
             return false
         }
         val adapter = ctx.getSystemService(BluetoothManager::class.java)?.adapter ?: return false
@@ -55,10 +54,10 @@ object BleWake {
 
         return try {
             val code = scanner.startScan(filters, settings, pendingIntent(ctx))
-            Log.i(TAG, "蓝牙唤醒已注册（硬件过滤：${adapter.isOffloadedFilteringSupported}），结果 $code")
+            AppLog.i(TAG, "蓝牙唤醒已注册（硬件过滤：${adapter.isOffloadedFilteringSupported}），结果 $code")
             code == 0
         } catch (e: SecurityException) {
-            Log.w(TAG, "注册蓝牙唤醒失败", e)
+            AppLog.w(TAG, "注册蓝牙唤醒失败", e)
             false
         }
     }

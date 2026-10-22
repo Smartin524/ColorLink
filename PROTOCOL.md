@@ -41,6 +41,7 @@ ColorOS 锁屏后，Wi-Fi 芯片会过滤组播包，手机收不到 Mac 发来�
 
 | 接口 | 说明 |
 |---|---|
+| `GET /api/logs` | 手机端日志文件（纯文本），导出诊断日志用 |
 | `GET /api/info` | `{"deviceId","name","model","android","battery","charging"}` |
 | `GET /api/media?kind=image\|video\|audio&offset=0&limit=200` | 按加入时间倒序分页：`{"total","items":[MediaItem]}` |
 | `GET /api/thumb?kind=&id=&v=<modified>&size=256` | JPEG 缩略图。手机端提前生成并缓存在磁盘上，`v` 变了就重新生成 |

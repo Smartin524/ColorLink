@@ -1,7 +1,6 @@
 package com.colorlink
 
 import android.content.Context
-import android.util.Log
 import org.json.JSONObject
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -46,12 +45,12 @@ object Knock {
                 s.broadcast = true
                 for (t in targets) {
                     runCatching { s.send(DatagramPacket(payload, payload.size, t, PORT)) }
-                        .onFailure { Log.w(TAG, "敲门 $t 失败：${it.message}") }
+                        .onFailure { AppLog.w(TAG, "敲门 $t 失败：${it.message}") }
                 }
             }
-            Log.i(TAG, "已敲门：${targets.joinToString { it.hostAddress ?: "?" }}")
+            AppLog.i(TAG, "已敲门：${targets.joinToString { it.hostAddress ?: "?" }}")
         } catch (e: Exception) {
-            Log.w(TAG, "敲门失败", e)
+            AppLog.w(TAG, "敲门失败", e)
         }
     }
 

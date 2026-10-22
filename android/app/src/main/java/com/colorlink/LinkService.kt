@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
-import android.util.Log
 
 private const val TAG = "ColorLink.Service"
 
@@ -30,7 +29,7 @@ class LinkService : Service() {
                     ctx.startForegroundService(Intent(ctx, LinkService::class.java))
                 } catch (e: Exception) {
                     // Android 12+ 不允许从后台随意启动前台服务；忽略电池优化后就没有这个限制
-                    Log.w(TAG, "无法启动前台服务（是否已忽略电池优化？）", e)
+                    AppLog.w(TAG, "无法启动前台服务（是否已忽略电池优化？）", e)
                 }
             } else {
                 ctx.stopService(Intent(ctx, LinkService::class.java))
@@ -68,6 +67,7 @@ class LinkService : Service() {
         val connected = EventBus.count > 0
         if (connected == shownConnected) return
         if (shownConnected != null) stopForeground(STOP_FOREGROUND_REMOVE)
+        AppLog.i(TAG, if (connected) "前台服务：显示流体云" else "前台服务：静默保活通知")
         startForeground(
             Notifications.ID_LINK,
             Notifications.link(this, connected),
@@ -77,5 +77,8 @@ class LinkService : Service() {
     }
 
     // 核心（LinkCore）留在进程里继续运行，由通知监听保活
-    override fun onDestroy() = super.onDestroy()
+    override fun onDestroy() {
+        AppLog.i(TAG, "前台服务已停止，通知栏不再显示")
+        super.onDestroy()
+    }
 }

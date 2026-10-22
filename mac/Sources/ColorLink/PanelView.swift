@@ -55,6 +55,7 @@ struct PanelView: View {
                 Button("取消配对") { link.forget() }
             }
             Divider()
+            Button("导出诊断日志") { close(); Task { await link.exportDiagnostics() } }
             Button("退出 ColorLink") { NSApp.terminate(nil) }
         } label: {
             Image(systemName: "ellipsis.circle")

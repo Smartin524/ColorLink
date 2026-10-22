@@ -7,7 +7,6 @@ import android.provider.Settings
 import android.provider.Telephony
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import android.util.Log
 import org.json.JSONObject
 
 /**
@@ -38,7 +37,7 @@ class NotifyListener : NotificationListenerService() {
         /** 开关开着却没绑定时，请系统重新绑定。 */
         fun rebindIfNeeded(ctx: Context) {
             if (!connected && enabled(ctx)) {
-                Log.i("ColorLink.Notify", "通知监听未绑定，请求系统重新绑定")
+                AppLog.i("ColorLink.Notify", "通知监听未绑定，请求系统重新绑定")
                 requestRebind(ComponentName(ctx, NotifyListener::class.java))
             }
         }
@@ -46,6 +45,8 @@ class NotifyListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
         connected = true
+        AppLog.init(this)
+        AppLog.i("ColorLink.Notify", "通知监听已绑定")
         BleWake.register(this)
         LinkCore.start(this)
         // 进程有了保活的依靠，空闲时就不需要前台服务了。前台服务可能正在启动，过一会儿再复查一次
@@ -55,6 +56,7 @@ class NotifyListener : NotificationListenerService() {
 
     override fun onListenerDisconnected() {
         connected = false
+        AppLog.w("ColorLink.Notify", "通知监听被解绑，请求重新绑定")
         requestRebind(ComponentName(this, NotifyListener::class.java))
         // 失去保活依靠，先用前台服务顶上
         LinkService.refresh(this)
@@ -90,6 +92,8 @@ class NotifyListener : NotificationListenerService() {
             sbn.packageName
         }
 
+        // 日志里不记短信内容
+        AppLog.i("ColorLink.Notify", "转发短信给 Mac（${sbn.packageName}，${text.length} 字）")
         EventBus.publish(
             "notification",
             JSONObject()

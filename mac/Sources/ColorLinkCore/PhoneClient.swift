@@ -120,6 +120,11 @@ public final class PhoneClient: @unchecked Sendable {
         try JSONDecoder().decode(DeviceInfo.self, from: await get("api/info", timeout: timeout))
     }
 
+    /// 手机端的日志文件（导出诊断日志用）
+    public func logs() async throws -> String {
+        String(decoding: try await get("api/logs", timeout: 10), as: UTF8.self)
+    }
+
     public func media(kind: MediaKind, offset: Int, limit: Int = 200) async throws -> MediaPage {
         let data = try await get("api/media", ["kind": kind.rawValue, "offset": "\(offset)", "limit": "\(limit)"])
         return try JSONDecoder().decode(MediaPage.self, from: data)

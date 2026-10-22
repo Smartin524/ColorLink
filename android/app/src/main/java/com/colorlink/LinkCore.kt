@@ -18,7 +18,6 @@ import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.MediaStore
-import android.util.Log
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -68,6 +67,11 @@ object LinkCore {
     fun start(ctx: Context) {
         if (running) return
         app = ctx.applicationContext
+        AppLog.init(app)
+        // 把系统记录的最近几次退出原因写进日志，事后能看出是被谁、因为什么结束的
+        ColorOS.recentExits(app, 3).forEach {
+            AppLog.i(TAG, "上次退出 ${it.timeText}：${it.reason}${if (it.wasRunningService) "（当时在前台运行）" else ""} ${it.detail}")
+        }
         if (worker.isShutdown) worker = Executors.newSingleThreadExecutor()
         media = MediaRepo(app)
         server = HttpServer(Api(app, media, ::touch)::handle).also { it.start(PORT) }
@@ -78,7 +82,10 @@ object LinkCore {
         app.contentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, mediaObserver)
 
         // Mac 连上 / 断开时，决定要不要开前台服务（流体云）
-        EventBus.onSubscribersChanged = { handler.post { LinkService.refresh(app) } }
+        EventBus.onSubscribersChanged = { n ->
+            AppLog.i(TAG, if (n > 0) "Mac 已连接（${macName ?: "?"}，共 $n 个连接）" else "Mac 已断开")
+            handler.post { LinkService.refresh(app) }
+        }
         app.registerReceiver(powerReceiver, IntentFilter(Intent.ACTION_POWER_CONNECTED))
         // 开关热点时敲门：Mac 可能正要连上手机热点，而这对手机来说不算“网络变化”
         app.registerReceiver(tetherReceiver, IntentFilter("android.net.conn.TETHER_STATE_CHANGED"))
@@ -87,7 +94,7 @@ object LinkCore {
         startedAt = SystemClock.elapsedRealtime()
         running = true
         knockSoon()
-        Log.i(TAG, "核心已启动，端口 $port")
+        AppLog.i(TAG, "核心已启动，端口 $port")
     }
 
     @Synchronized
@@ -105,7 +112,7 @@ object LinkCore {
         server = null
         worker.shutdownNow()
         releaseLocks()
-        Log.i(TAG, "核心已停止")
+        AppLog.i(TAG, "核心已停止")
     }
 
     // region 省电：只在有请求时短暂持锁，空闲 15 秒后释放
@@ -155,11 +162,11 @@ object LinkCore {
         }
         val listener = object : NsdManager.RegistrationListener {
             override fun onServiceRegistered(info: NsdServiceInfo) {
-                Log.i(TAG, "mDNS 已广播：${info.serviceName}")
+                AppLog.i(TAG, "mDNS 已广播：${info.serviceName}")
             }
 
             override fun onRegistrationFailed(info: NsdServiceInfo, code: Int) {
-                Log.w(TAG, "mDNS 广播失败：$code")
+                AppLog.w(TAG, "mDNS 广播失败：$code")
             }
 
             override fun onServiceUnregistered(info: NsdServiceInfo) = Unit
@@ -245,7 +252,7 @@ object LinkCore {
                 val id = img.json.getLong("id")
                 if (seenImages.add(id)) {
                     if (img.isScreenshot) {
-                        Log.i(TAG, "新截图 ${img.json.getString("name")}，推送给 Mac")
+                        AppLog.i(TAG, "新截图 ${img.json.getString("name")}，推送给 Mac")
                         EventBus.publish("screenshot", img.json)
                     } else {
                         // 普通新照片：通知 Mac 刷新「最近照片」
@@ -270,7 +277,7 @@ object LinkCore {
     private val tetherReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (isInitialStickyBroadcast) return // 注册时系统会立刻补发一次上次的状态
-            Log.i(TAG, "热点状态变化，敲门")
+            AppLog.i(TAG, "热点状态变化，敲门")
             handler.postDelayed({ knockSoon(force = true) }, 2_000)
         }
     }

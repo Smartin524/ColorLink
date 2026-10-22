@@ -9,7 +9,6 @@ import android.content.Intent
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.provider.Settings
-import android.util.Log
 import android.util.Size
 
 private const val TAG = "ColorLink.Notify"
@@ -138,7 +137,7 @@ object LiveUpdate {
                 .invoke(style, Icon.createWithResource(ctx, R.drawable.ic_dot_green))
             b.setStyle(style as Notification.Style)
         } catch (e: Exception) {
-            Log.w(TAG, "ProgressStyle 不可用，用普通样式", e)
+            AppLog.w(TAG, "ProgressStyle 不可用，用普通样式", e)
         }
         try {
             val cls = Notification.Builder::class.java

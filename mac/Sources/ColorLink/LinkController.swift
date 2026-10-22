@@ -1,9 +1,6 @@
 import AppKit
 import Foundation
-import os
 import ColorLinkCore
-
-let log = Logger(subsystem: "com.colorlink.mac", category: "link")
 
 /// 连接状态机：找手机 → 连接 → 订阅事件 → 断了就退避重连。整个过程无需人工干预。
 @MainActor
@@ -17,7 +14,7 @@ final class LinkController: ObservableObject {
     }
 
     @Published private(set) var state: State = .searching {
-        didSet { if state != oldValue { log.info("状态：\(String(describing: self.state), privacy: .public)") } }
+        didSet { if state != oldValue { AppLog.write("状态：\(self.state)") } }
     }
     @Published private(set) var discovered: [DiscoveredPhone] = []
     @Published private(set) var client: PhoneClient?
@@ -77,13 +74,13 @@ final class LinkController: ObservableObject {
         knocks.onKnock = { [weak self] knock in
             Task { @MainActor in
                 guard let self else { return }
-                log.info("收到手机敲门：\(knock.endpoint.description, privacy: .public)")
+                AppLog.write("收到手机敲门：\(knock.endpoint)")
                 self.knocked[knock.deviceId] = knock.endpoint
                 if self.isConnected {
                     // 手机只在没有 Mac 连着（或刚换了网络）时才敲门。我们却显示“已连接”，
                     // 说明这条连接已经断了，只是没收到关闭通知（例如手机突然断 Wi-Fi）。立即断开重连，
                     // 不必干等 90 秒超时。
-                    log.info("已连接却收到敲门，判定为假连接，立即重连")
+                    AppLog.write("已连接却收到敲门，判定为假连接，立即重连")
                     self.streamTask?.cancel()
                 }
                 self.wake()
@@ -183,11 +180,12 @@ final class LinkController: ObservableObject {
                 streamTask = nil
             } catch PhoneError.unauthorized {
                 // 手机上点了「取消所有电脑的配对」
+                AppLog.write("手机返回 401，已取消配对")
                 PairedStore.remove(paired.deviceId)
                 lastEvent = "手机已取消配对，请重新配对"
             } catch {
                 lastEvent = error.localizedDescription
-                log.info("连接 \(endpoint.description, privacy: .public) 失败：\(String(describing: error), privacy: .public)")
+                AppLog.write("连接 \(endpoint) 失败：\(error)")
             }
 
             if client != nil {
@@ -251,6 +249,7 @@ final class LinkController: ObservableObject {
             Task { await refreshRecent() }
 
         case .screenshot(let item):
+            AppLog.write("收到截图事件 \(item.name)")
             lastEvent = "收到截图 \(item.name)"
             Task { await refreshRecent() }
             guard autoCopyScreenshots else { return }
@@ -269,7 +268,10 @@ final class LinkController: ObservableObject {
         case .notification(let n):
             guard mirrorNotifications else { return }
             // 手机只发短信过来；识别到验证码就直接复制，通知里把验证码放在标题最显眼的位置
-            if let code = VerificationCode.extract(from: n.text) {
+            let code = VerificationCode.extract(from: n.text)
+            // 日志里不记短信内容和验证码
+            AppLog.write("收到短信（\(n.text.count) 字），\(code == nil ? "没有识别出验证码" : "识别出验证码\(autoCopyCodes ? "并已复制" : "")")")
+            if let code {
                 if autoCopyCodes {
                     Clipboard.copyText(code)
                     lastEvent = "验证码 \(code) 已复制"
@@ -341,12 +343,47 @@ final class LinkController: ObservableObject {
                 done += 1
             } catch {
                 lastEvent = "发送 \(url.lastPathComponent) 失败：\(error.localizedDescription)"
+                AppLog.write("发送文件失败：\(error)")
             }
         }
         transfer = done == files.count ? "已发送到手机 ✓" : "已发送 \(done)/\(files.count)"
+        AppLog.write("发送文件到手机：成功 \(done)/\(files.count)")
         lastEvent = transfer
         await refreshRecent()
         try? await Task.sleep(for: .seconds(1.5))
         transfer = nil
+    }
+
+    // MARK: - 诊断日志
+
+    /// 把 Mac 和手机的日志一起导出到「下载/ColorLink/诊断日志-时间」，并在 Finder 里打开
+    func exportDiagnostics() async {
+        let stamp = Date().formatted(.iso8601.year().month().day().dateSeparator(.omitted)
+            .time(includingFractionalSeconds: false).timeSeparator(.omitted))
+        let dir = AppDirs.downloads.appendingPathComponent("诊断日志-\(stamp)")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        var summary = [
+            "导出时间：\(Date())",
+            "macOS：\(ProcessInfo.processInfo.operatingSystemVersionString)",
+            "状态：\(state)",
+            "手机：\(device?.name ?? "未配对") \(client?.endpoint.description ?? "")",
+            "手机信息：\(info.map { "\($0.model) / Android \($0.android) / 电量 \($0.battery ?? -1)%" } ?? "无")",
+            "设置：截图自动复制=\(autoCopyScreenshots) 同步短信=\(mirrorNotifications) 验证码自动复制=\(autoCopyCodes)",
+        ]
+        if let c = client {
+            do {
+                try await c.logs().write(to: dir.appendingPathComponent("手机.log"), atomically: true, encoding: .utf8)
+                summary.append("手机日志：已导出")
+            } catch {
+                summary.append("手机日志：获取失败（\(error.localizedDescription)）")
+            }
+        } else {
+            summary.append("手机日志：手机未连接，没有导出")
+        }
+        try? AppLog.dump().write(to: dir.appendingPathComponent("Mac.log"), atomically: true, encoding: .utf8)
+        try? summary.joined(separator: "\n").write(to: dir.appendingPathComponent("概况.txt"), atomically: true, encoding: .utf8)
+        AppLog.write("已导出诊断日志")
+        NSWorkspace.shared.activateFileViewerSelecting([dir])
     }
 }

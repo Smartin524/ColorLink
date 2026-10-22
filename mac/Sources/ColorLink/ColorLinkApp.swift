@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBar: StatusBarController!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppLog.write("ColorLink 启动")
         link = LinkController()
         Windows.shared.link = link
         statusBar = StatusBarController(link: link)

@@ -1,6 +1,5 @@
 package com.colorlink
 
-import android.util.Log
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.IOException
@@ -75,7 +74,7 @@ class HttpServer(private val handler: (Request) -> Response) {
         val s = try {
             ServerSocket(preferredPort)
         } catch (e: IOException) {
-            Log.w(TAG, "端口 $preferredPort 被占用，改用随机端口")
+            AppLog.w(TAG, "端口 $preferredPort 被占用，改用随机端口")
             ServerSocket(0)
         }
         socket = s
@@ -90,7 +89,7 @@ class HttpServer(private val handler: (Request) -> Response) {
                 pool.execute { serve(client) }
             }
         }
-        Log.i(TAG, "监听端口 $port")
+        AppLog.i(TAG, "监听端口 $port")
     }
 
     fun stop() {
@@ -113,7 +112,7 @@ class HttpServer(private val handler: (Request) -> Response) {
                     val resp = try {
                         handler(req)
                     } catch (e: Exception) {
-                        Log.w(TAG, "处理 ${req.path} 出错", e)
+                        AppLog.w(TAG, "处理 ${req.path} 出错", e)
                         Response.text(500, e.toString())
                     }
                     // 读掉没用完的请求体，保证 keep-alive 下一个请求能对齐
