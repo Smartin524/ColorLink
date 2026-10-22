@@ -317,6 +317,19 @@ final class LinkController: ObservableObject {
         return cached
     }
 
+    /// 下载原图存到「图片/ColorLink」
+    func saveToPictures(_ item: MediaItem) async -> Bool {
+        guard let c = client else { return false }
+        do {
+            let url = try await c.download(item, to: AppDirs.pictures)
+            lastEvent = "已存到 图片/ColorLink：\(url.lastPathComponent)"
+            return true
+        } catch {
+            lastEvent = "下载失败：\(error.localizedDescription)"
+            return false
+        }
+    }
+
     /// 下载原图并放进剪贴板
     func copyToClipboard(_ item: MediaItem) async -> Bool {
         await copyToClipboard([item])
@@ -347,10 +360,11 @@ final class LinkController: ObservableObject {
         let files = urls.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true }
         guard !files.isEmpty else { return }
         var done = 0
+        let batch = UUID().uuidString
         for (i, url) in files.enumerated() {
             transfer = files.count == 1 ? "正在发送 \(url.lastPathComponent)…" : "正在发送 \(i + 1)/\(files.count)…"
             do {
-                try await c.upload(file: url)
+                try await c.upload(file: url, batch: (batch, i, files.count))
                 done += 1
             } catch {
                 lastEvent = "发送 \(url.lastPathComponent) 失败：\(error.localizedDescription)"

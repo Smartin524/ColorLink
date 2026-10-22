@@ -176,23 +176,27 @@ class Api(
         },
     )
 
-    /** Mac 发来的文件：POST /api/upload?name=文件名&mime=类型，请求体是文件内容。 */
+    /** Mac 发来的文件：POST /api/upload?name=文件名&mime=类型&batch=批次&index=序号&count=总数，请求体是文件内容。 */
     private fun upload(req: Request): Response {
         if (req.method != "POST") return Response.text(405, "use POST")
         val name = (req.q("name") ?: "file").substringAfterLast('/')
             .replace(Regex("""[\\:*?"<>|]"""), "_").take(120).ifBlank { "file" }
         val mime = req.q("mime")?.takeIf { it.contains('/') }
             ?: URLConnection.guessContentTypeFromName(name) ?: "application/octet-stream"
+        // 一次拖过来的多个文件是一批：batch 相同，index 从 0 数到 count - 1。旧版 Mac 不带这些参数，当作一个文件的一批
+        val count = req.q("count")?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+        val index = req.q("index")?.toIntOrNull()?.coerceIn(0, count - 1) ?: 0
+        val batchId = req.q("batch") ?: "single-${System.nanoTime()}"
         // 接收过程中显示流体云和进度，最多每 0.3 秒更新一次
         val total = req.header("content-length")?.toLongOrNull() ?: 0
         var lastUpdate = 0L
-        Notifications.receiving(ctx, name, 0, total)
+        Notifications.receiving(ctx, name, index, count, if (total > 0) 0f else null)
         val saved = try {
             media.save(name, mime, req.body) { done ->
                 val now = System.currentTimeMillis()
-                if (now - lastUpdate > 300) {
+                if (now - lastUpdate > 300 && total > 0) {
                     lastUpdate = now
-                    Notifications.receiving(ctx, name, done, total)
+                    Notifications.receiving(ctx, name, index, count, done.toFloat() / total)
                 }
             }
         } catch (e: Exception) {
@@ -200,7 +204,7 @@ class Api(
             throw e
         }
         AppLog.i("ColorLink.Api", "收到 Mac 发来的文件：$mime，保存到 ${saved.dir}")
-        Notifications.receivedDone(ctx, saved)
+        Notifications.receivedOne(ctx, saved, batchId, index, count)
         return Response.json(saved.json)
     }
 

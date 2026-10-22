@@ -41,6 +41,11 @@ public enum AppDirs {
     }
 
     /// 截图、保存的文件放在「下载/ColorLink」，方便在 Finder 里找到。
+    /// 「图片/ColorLink」：面板里点“下载”存到这里
+    public static var pictures: URL {
+        FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0].appendingPathComponent("ColorLink")
+    }
+
     public static var downloads: URL {
         FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0].appendingPathComponent("ColorLink")
     }

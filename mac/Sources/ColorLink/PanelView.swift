@@ -3,7 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// 状态栏面板，只有两块：顶部的连接状态，下面的照片区。
-/// 照片区显示最近三张照片（点一下复制原图），同时也是拖放区：把文件拖上来就发给手机。
+/// 照片区显示最近三张照片（悬停：上半下载、下半复制），同时也是拖放区：把文件拖上来就发给手机。
 /// 不常用的开关和操作收在右上角「⋯」菜单里。
 struct PanelView: View {
     let close: () -> Void
@@ -159,49 +159,56 @@ struct PhotoStrip: View {
     }
 }
 
-/// 一张最近照片：悬停显示“复制”，点一下下载原图并放进剪贴板
+/// 一张最近照片：悬停时上半是“下载”（存到「图片/ColorLink」），下半是“复制”（原图放进剪贴板）
 struct RecentThumb: View {
     let item: MediaItem
     @EnvironmentObject var link: LinkController
     @State private var image: NSImage?
     @State private var hovering = false
-    @State private var state: CopyState = .idle
+    @State private var state: ActionState = .idle
 
-    enum CopyState { case idle, copying, copied, failed }
+    enum ActionState: Equatable { case idle, working, done(String), failed }
 
     var body: some View {
-        Button {
+        Color.gray.opacity(0.15)
+            .frame(width: 72, height: 72)
+            .overlay {
+                if let image { Image(nsImage: image).resizable().scaledToFill() }
+            }
+            .overlay {
+                switch state {
+                case .idle where hovering:
+                    VStack(spacing: 0) {
+                        half("下载", "arrow.down.circle") { await link.saveToPictures(item) ? "已存" : nil }
+                        Rectangle().fill(.white.opacity(0.25)).frame(height: 0.5)
+                        half("复制", "doc.on.doc") { await link.copyToClipboard(item) ? "已复制" : nil }
+                    }
+                case .idle: EmptyView()
+                case .working: badge(nil, nil)
+                case .done(let text): badge(text, "checkmark.circle.fill")
+                case .failed: badge("失败", "xmark.circle.fill")
+                }
+            }
+            // 外框 22、内边距 12 + 5，缩略图圆角取 8，和外框保持同心
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .onHover { hovering = $0 }
+            .help(item.name)
+            .task(id: item.cacheKey) {
+                guard let c = link.client, let cache = link.thumbs else { return }
+                if let d = await cache.data(for: item, client: c) { image = NSImage(data: d) }
+            }
+    }
+
+    /// 半边按钮：悬停的那半边颜色更深，提示点下去是哪个
+    private func half(_ text: String, _ icon: String, action: @escaping () async -> String?) -> some View {
+        HalfButton(text: text, icon: icon) {
             Task {
-                state = .copying
-                state = await link.copyToClipboard(item) ? .copied : .failed
+                state = .working
+                state = await action().map { .done($0) } ?? .failed
                 try? await Task.sleep(for: .seconds(1.2))
                 state = .idle
             }
-        } label: {
-            Color.gray.opacity(0.15)
-                .frame(width: 72, height: 72)
-                .overlay {
-                    if let image { Image(nsImage: image).resizable().scaledToFill() }
-                }
-                .overlay {
-                    switch state {
-                    case .idle where hovering: badge("复制", "doc.on.doc")
-                    case .idle: EmptyView()
-                    case .copying: badge(nil, nil)
-                    case .copied: badge("已复制", "checkmark.circle.fill")
-                    case .failed: badge("失败", "xmark.circle.fill")
-                    }
-                }
-                // 外框 22、内边距 12 + 5，缩略图圆角取 8，和外框保持同心
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .contentShape(RoundedRectangle(cornerRadius: 8))
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .help(item.name)
-        .task(id: item.cacheKey) {
-            guard let c = link.client, let cache = link.thumbs else { return }
-            if let d = await cache.data(for: item, client: c) { image = NSImage(data: d) }
         }
     }
 
@@ -213,6 +220,28 @@ struct RecentThumb: View {
         .foregroundStyle(.white)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.black.opacity(0.4))
+    }
+}
+
+private struct HalfButton: View {
+    let text: String
+    let icon: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                Image(systemName: icon).font(.caption)
+                Text(text).font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.black.opacity(hovering ? 0.55 : 0.35))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 

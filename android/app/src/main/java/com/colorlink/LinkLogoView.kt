@@ -84,6 +84,25 @@ class LinkLogoView(context: Context) : View(context) {
     private val relative = Matrix()
     private val layerBounds = RectF(-560f, -560f, 560f, 560f)
 
+    companion object {
+        /**
+         * 画一帧「连上」动画（t 从 0 散开的灰环到 1 扣合的彩色链环）成位图，给流体云左边的图标用。
+         * 和 playConnect 从待命出发时的节奏一致。
+         */
+        fun render(ctx: Context, px: Int, t: Float): android.graphics.Bitmap {
+            val v = LinkLogoView(ctx)
+            val e = PathInterpolator(0.33f, 0f, 0.2f, 1f)
+            fun w(a: Float, b: Float) = e.getInterpolation(((t - a) / (b - a)).coerceIn(0f, 1f))
+            v.apart = 1f - w(0f, 0.7f)
+            v.colorA = w(0f, 0.6f)
+            v.colorB = w(0.2f, 0.7f)
+            v.lock = w(0.65f, 1f)
+            v.measure(View.MeasureSpec.makeMeasureSpec(px, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(px, View.MeasureSpec.EXACTLY))
+            v.layout(0, 0, px, px)
+            return android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888).also { v.draw(Canvas(it)) }
+        }
+    }
+
     /** 连上：并拢、上色，然后扣合。从当前画面出发，已经走完的部分不再重复 */
     fun playConnect() {
         val a0 = apart; val cA0 = colorA; val cB0 = colorB; val l0 = lock; val b0 = bounce

@@ -152,10 +152,17 @@ public final class PhoneClient: @unchecked Sendable {
 
     /// 把文件发到手机。图片存进手机相册的 Pictures/ColorLink，其他文件存进 Download/ColorLink。
     @discardableResult
-    public func upload(file: URL, name: String? = nil) async throws -> MediaItem? {
+    /// batch：一次发送的多个文件共用一个批次号，手机收完最后一个（index == count - 1）才提示「已收到 N 个文件」
+    public func upload(file: URL, name: String? = nil, batch: (id: String, index: Int, count: Int)? = nil) async throws -> MediaItem? {
         let fileName = name ?? file.lastPathComponent
         let mime = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-        var req = request(url("api/upload", ["name": fileName, "mime": mime]), timeout: 120)
+        var query = ["name": fileName, "mime": mime]
+        if let batch {
+            query["batch"] = batch.id
+            query["index"] = "\(batch.index)"
+            query["count"] = "\(batch.count)"
+        }
+        var req = request(url("api/upload", query), timeout: 120)
         req.httpMethod = "POST"
         let (data, resp) = try await session.upload(for: req, fromFile: file)
         try Self.check(resp)

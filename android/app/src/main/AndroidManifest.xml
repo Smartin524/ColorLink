@@ -38,6 +38,8 @@
         <package android:name="com.coloros.safecenter" />
         <package android:name="com.oppo.safe" />
         <package android:name="com.coloros.oppoguardelf" />
+        <!-- 收到多个文件时用系统「文件」打开所在文件夹 -->
+        <package android:name="com.android.documentsui" />
         <!-- 查询默认短信 App -->
         <intent>
             <action android:name="android.intent.action.SENDTO" />
@@ -65,6 +67,15 @@
         </activity>
 
         <!-- 分享菜单里的「发送到 Mac」 -->
+        <!-- 点「已收到」流体云：撤掉通知再打开文件，没有界面 -->
+        <activity
+            android:name=".OpenReceivedActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <activity
             android:name=".ShareActivity"
             android:excludeFromRecents="true"
