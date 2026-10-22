@@ -114,6 +114,7 @@ struct PanelView: View {
         toggle("截图自动复制到剪贴板", link.autoCopyScreenshots) { link.autoCopyScreenshots = $0 }
         toggle("同步短信", link.mirrorNotifications) { link.mirrorNotifications = $0 }
         toggle("短信验证码自动复制", link.autoCopyCodes, enabled: link.mirrorNotifications) { link.autoCopyCodes = $0 }
+        toggle("开机自启", LoginItem.enabled) { LoginItem.set($0) }
         menu.addItem(.separator())
         menu.addItem(ClosureMenuItem(title: "配对手机…") { close(); Windows.shared.showPair() })
         if link.device != nil {

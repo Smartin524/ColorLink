@@ -1,6 +1,34 @@
 import AppKit
 import CoreBluetooth
+import ServiceManagement
 import UserNotifications
+
+/// 开机自启（系统设置 → 通用 → 登录项）。第一次运行时默认打开，之后以用户在「⋯」菜单里的选择为准。
+@MainActor
+enum LoginItem {
+    static var enabled: Bool { SMAppService.mainApp.status == .enabled }
+
+    /// 第一次运行时注册一次；用户之后关掉了就不再自作主张打开
+    static func enableOnFirstRun() {
+        AppLog.write("开机自启状态：\(enabled ? "已打开" : "未打开")（\(SMAppService.mainApp.status.rawValue)）")
+        guard !UserDefaults.standard.bool(forKey: "loginItemConfigured") else { return }
+        UserDefaults.standard.set(true, forKey: "loginItemConfigured")
+        set(true)
+    }
+
+    static func set(_ on: Bool) {
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+            AppLog.write("开机自启：\(on ? "打开" : "关闭")，状态 \(SMAppService.mainApp.status.rawValue)")
+        } catch {
+            AppLog.write("开机自启设置失败：\(error)")
+        }
+        // 被系统拦下、需要用户在「登录项」里允许时，直接把那一页打开
+        if on, SMAppService.mainApp.status == .requiresApproval {
+            SMAppService.openSystemSettingsLoginItems()
+        }
+    }
+}
 
 /// 剪贴板。图片同时写 PNG 和 TIFF，微信、文档、Figma 等都能直接粘贴。
 enum Clipboard {
