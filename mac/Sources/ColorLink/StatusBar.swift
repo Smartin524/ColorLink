@@ -141,6 +141,8 @@ final class StatusBarController: NSObject {
 
 /// 不抢焦点的浮动面板，挂在状态栏图标下方
 final class FloatingPanel: NSPanel {
+    /// 内容四周的透明边距（PanelView 里也用到）
+    static let margin: CGFloat = 16
     private let hosting: NSHostingView<AnyView>
 
     init<V: View>(rootView: V) {
@@ -156,7 +158,7 @@ final class FloatingPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = true
+        hasShadow = false // 阴影由液态玻璃自己画；窗口阴影是矩形的，会和圆角打架
         hidesOnDeactivate = false
         contentView = hosting
     }
@@ -169,8 +171,9 @@ final class FloatingPanel: NSPanel {
         var frame = NSRect(origin: self.frame.origin, size: size)
         if let anchor, let screen = NSScreen.screens.first(where: { $0.frame.intersects(anchor) }) ?? NSScreen.main {
             let visible = screen.visibleFrame
-            frame.origin.x = min(max(anchor.midX - size.width / 2, visible.minX + 8), visible.maxX - size.width - 8)
-            frame.origin.y = anchor.minY - size.height - 6
+            let m = Self.margin
+            frame.origin.x = min(max(anchor.midX - size.width / 2, visible.minX - m + 8), visible.maxX - size.width + m - 8)
+            frame.origin.y = anchor.minY - size.height + m - 6
         }
         setFrame(frame, display: true)
     }

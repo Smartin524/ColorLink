@@ -20,6 +20,8 @@ struct PanelView: View {
         .padding(12)
         .frame(width: 256)
         .glassEffect(.regular, in: .rect(cornerRadius: 22))
+        // 玻璃的高光和阴影会画到形状外面，留一圈透明边距，不然会被窗口边缘裁掉
+        .padding(FloatingPanel.margin)
         .fixedSize(horizontal: false, vertical: true)
     }
 
