@@ -72,18 +72,16 @@ object Notifications {
             return Notification.Builder(ctx, CH_IDLE)
                 .setSmallIcon(R.drawable.ic_link)
                 .setContentTitle("ColorLink 待命中")
-                .setContentText("等待电脑连接")
                 .setShowWhen(false)
                 .setContentIntent(openApp(ctx))
                 .setOngoing(true)
                 .build()
         }
-        val mac = LinkCore.macName ?: "Mac"
         val announcing = state == LinkState.ANNOUNCING
         val b = Notification.Builder(ctx, if (announcing) CH_CONNECTED else CH_LINKED)
             .setSmallIcon(R.drawable.ic_mac) // 流体云胶囊左边的图标
-            .setContentTitle("已连接 $mac")
-            .setContentText("可以在 Mac 上浏览照片、接收截图和文件")
+            .setContentTitle("ColorLink 已连接")
+            .setShowWhen(false)
             .setContentIntent(openApp(ctx))
             .setCategory(Notification.CATEGORY_STATUS)
             .setOngoing(true)
