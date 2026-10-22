@@ -48,6 +48,7 @@ ColorOS 锁屏后，Wi-Fi 芯片会过滤组播包，手机收不到 Mac 发来�
 | `GET /api/file?kind=&id=` | 原文件，支持 `Range`（视频可以边下边播、随意拖动） |
 | `GET /api/events?name=<电脑名>` | Server-Sent Events 长连接，见下。`name` 显示在手机的流体云里 |
 | `POST /api/upload?name=<文件名>&mime=<类型>&batch=<批次>&index=<序号>&count=<总数>` | Mac 发文件到手机，请求体是文件内容（需带 `Content-Length`）。图片存进 `Pictures/ColorLink`，视频 `Movies/ColorLink`，音频 `Music/ColorLink`，其他 `Download/ColorLink`。一次拖过来的多个文件共用一个 `batch`，`index` 从 0 数起，手机收完最后一个才提示「已收到 N 个文件」（不带这三个参数当作单个文件）；返回保存后的 `MediaItem` |
+| `GET /api/shared?id=<id>` | 取分享菜单发来的文件（见 `shared` 事件） |
 | `POST /api/trash` | 请求体 `{"items":[{"kind":"image","id":123}]}`，移到手机的「最近删除」。返回 `{"trashed":已移走数量,"pending":是否要在手机上点通知确认}`（手机给了「媒体管理」权限就不用确认） |
 
 `MediaItem`：
@@ -68,3 +69,4 @@ ColorOS 锁屏后，Wi-Fi 芯片会过滤组播包，手机收不到 Mac 发来�
 | `media` | `MediaItem`。手机多了一张普通照片（拍照、保存、Mac 发来的图），Mac 刷新「最近照片」 |
 | `notification` | `{"key","pkg","app","title","text","time"}`。只转发短信 App 的通知（默认短信 App 加常见短信包名），同一条 2 分钟内去重；验证码由 Mac 端识别 |
 | `clipboard` | `{"text"}`，在手机上用分享菜单「发送到 Mac」时发出 |
+| `shared` | `{"items":[{"id","name","mime","size"}]}`，在手机上用分享菜单把图片 / 文件「发送到 Mac」时发出；Mac 用 `GET /api/shared?id=` 取文件（手机保留一小时） |

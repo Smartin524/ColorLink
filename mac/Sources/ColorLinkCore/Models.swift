@@ -66,7 +66,17 @@ public enum PhoneEvent: Sendable {
     case media(MediaItem)
     case notification(PhoneNotification)
     case clipboard(String)
+    /// 手机上从分享菜单「发送到 Mac」的文件
+    case shared([SharedFile])
     case unknown(String)
+}
+
+/// 手机分享过来、等 Mac 去取的文件（GET /api/shared?id=）
+public struct SharedFile: Codable, Sendable {
+    public let id: String
+    public let name: String
+    public let mime: String
+    public let size: Int64
 }
 
 public enum PhoneError: Error, LocalizedError {

@@ -156,6 +156,17 @@ public final class PhoneClient: @unchecked Sendable {
         return try JSONDecoder().decode(TrashResult.self, from: data)
     }
 
+    /// 取手机分享过来的文件，存进 dir，重名时自动加序号
+    public func download(_ file: SharedFile, to dir: URL) async throws -> URL {
+        let req = request(url("api/shared", ["id": file.id]), timeout: 120)
+        let (tmp, resp) = try await session.download(for: req)
+        try Self.check(resp)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dest = Self.uniqueURL(in: dir, name: file.name)
+        try FileManager.default.moveItem(at: tmp, to: dest)
+        return dest
+    }
+
     /// 下载到指定目录，重名时自动加序号。
     public func download(_ item: MediaItem, to dir: URL) async throws -> URL {
         let req = request(url("api/file", ["kind": item.kind.rawValue, "id": "\(item.id)"]), timeout: 60)
@@ -252,6 +263,9 @@ public final class PhoneClient: @unchecked Sendable {
         case "clipboard":
             struct T: Decodable { let text: String }
             if let v = try? d.decode(T.self, from: data) { return .clipboard(v.text) }
+        case "shared":
+            struct T: Decodable { let items: [SharedFile] }
+            if let v = try? d.decode(T.self, from: data) { return .shared(v.items) }
         default:
             break
         }

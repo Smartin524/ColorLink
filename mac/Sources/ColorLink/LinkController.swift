@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import ColorLinkCore
+import UniformTypeIdentifiers
 
 /// 连接状态机：找手机 → 连接 → 订阅事件 → 断了就退避重连。整个过程无需人工干预。
 @MainActor
@@ -287,6 +288,10 @@ final class LinkController: ObservableObject {
                 Notifier.post(title: "短信 · \(n.title)", body: n.text, id: n.key)
             }
 
+        case .shared(let files):
+            AppLog.write("收到手机分享的 \(files.count) 个文件")
+            Task { await receiveShared(files, client: c) }
+
         case .clipboard(let text):
             Clipboard.copyText(text)
             Notifier.post(title: "已收到手机发来的文字", body: text)
@@ -295,6 +300,35 @@ final class LinkController: ObservableObject {
         case .unknown:
             break
         }
+    }
+
+    /// 手机从分享菜单发来的文件：图片存进「图片/ColorLink」，其他存进「下载/ColorLink」，并放进剪贴板
+    private func receiveShared(_ files: [SharedFile], client c: PhoneClient) async {
+        var saved: [URL] = []
+        for f in files {
+            do {
+                let dir = f.mime.hasPrefix("image/") ? AppDirs.pictures : AppDirs.downloads
+                saved.append(try await c.download(f, to: dir))
+            } catch {
+                AppLog.write("取分享的文件失败 \(f.name)：\(error)")
+            }
+        }
+        guard !saved.isEmpty else {
+            lastEvent = "手机分享的文件没取到"
+            return
+        }
+        let images = saved.filter { (UTType(filenameExtension: $0.pathExtension)?.conforms(to: .image)) == true }
+        // 一张图片放图片数据，哪里都能粘贴；其他情况放文件
+        let copied = saved.count == 1 && images.count == 1 ? Clipboard.copyImage(at: saved[0]) : Clipboard.copyFiles(saved)
+        let what = saved.count == 1 ? (images.count == 1 ? "图片" : saved[0].lastPathComponent)
+            : images.count == saved.count ? "\(saved.count) 张图片" : "\(saved.count) 个文件"
+        Notifier.post(
+            title: "收到手机分享的\(what)",
+            body: (copied ? "已复制，可以直接 ⌘V 粘贴；" : "") + "点按在 Finder 中显示",
+            image: images.first,
+            reveal: saved
+        )
+        lastEvent = "收到手机分享的\(what)"
     }
 
     // MARK: - 最近照片 / 发送到手机

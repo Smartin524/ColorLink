@@ -43,6 +43,7 @@ class Api(
             "/api/events" -> events(req)
             "/api/upload" -> upload(req)
             "/api/trash" -> trash(req)
+            "/api/shared" -> shared(req)
             else -> Response.text(404, "not found")
         }
     }
@@ -140,6 +141,17 @@ class Api(
         skipFully(input, start)
         headers["Content-Range"] = "bytes $start-$end/$size"
         return Response(206, headers, Response.Body.Stream(input, end - start + 1))
+    }
+
+    /** 分享菜单「发送到 Mac」的文件：GET /api/shared?id=，id 来自 shared 事件 */
+    private fun shared(req: Request): Response {
+        val entry = req.q("id")?.let(SharedFiles::get) ?: return Response.text(404, "not found")
+        val name = URLEncoder.encode(entry.name, "UTF-8").replace("+", "%20")
+        return Response(
+            200,
+            mutableMapOf("Content-Type" to entry.mime, "Content-Disposition" to "attachment; filename*=UTF-8''$name"),
+            Response.Body.Stream(entry.file.inputStream(), entry.file.length()),
+        )
     }
 
     private fun events(req: Request): Response {

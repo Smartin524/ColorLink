@@ -71,7 +71,8 @@ enum Notifier {
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
-    static func post(title: String, body: String, image: URL? = nil, id: String = UUID().uuidString) {
+    /// reveal：点通知时在 Finder 里显示这些文件
+    static func post(title: String, body: String, image: URL? = nil, reveal: [URL] = [], id: String = UUID().uuidString) {
         guard available else {
             print("[通知] \(title)：\(body)")
             return
@@ -79,6 +80,7 @@ enum Notifier {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
+        if !reveal.isEmpty { content.userInfo = ["reveal": reveal.map(\.path)] }
         if let image {
             // 附件会被系统移走，所以先复制一份
             let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + image.pathExtension)
@@ -97,6 +99,18 @@ enum Notifier {
             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
         ) {
             completionHandler([.banner, .sound])
+        }
+
+        func userNotificationCenter(
+            _ center: UNUserNotificationCenter,
+            didReceive response: UNNotificationResponse,
+            withCompletionHandler completionHandler: @escaping () -> Void
+        ) {
+            if let paths = response.notification.request.content.userInfo["reveal"] as? [String] {
+                let urls = paths.map { URL(fileURLWithPath: $0) }
+                DispatchQueue.main.async { NSWorkspace.shared.activateFileViewerSelecting(urls) }
+            }
+            completionHandler()
         }
     }
 }
