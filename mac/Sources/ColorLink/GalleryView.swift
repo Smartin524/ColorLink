@@ -18,7 +18,10 @@ struct GalleryView: View {
     /// ⇧ 连续选择的起点
     @State private var anchor: MediaItem.ID?
     /// 框选：各缩略图在网格里的位置、当前选框、开始框选前已有的选择
-    @State private var frames: [MediaItem.ID: CGRect] = [:]
+    /// 位置只在框选时读，放进不触发刷新的盒子：滚动时每帧都会更新，存在 @State 里会让整个相册每帧重算
+    @State private var frameStore = FrameStore()
+    /// 按日期分好的组，只在列表变化时重算（不在每次刷新界面时重算）
+    @State private var sections: [DaySection] = []
     @State private var band: CGRect?
     @State private var bandBase = Set<MediaItem.ID>()
 
@@ -40,7 +43,7 @@ struct GalleryView: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        Task { await reload() }
+                        Task { await revalidate() }
                     } label: {
                         Label("刷新", systemImage: "arrow.clockwise")
                     }
@@ -133,7 +136,7 @@ struct GalleryView: View {
                 }
             }
             .coordinateSpace(.named("grid"))
-            .onPreferenceChange(CellFrames.self) { frames = $0 }
+            .onPreferenceChange(CellFrames.self) { frameStore.frames = $0 }
             .simultaneousGesture(rubberBand)
         }
         }
@@ -183,7 +186,7 @@ struct GalleryView: View {
                     width: abs(v.location.x - v.startLocation.x), height: abs(v.location.y - v.startLocation.y)
                 )
                 band = r
-                selection = bandBase.union(frames.filter { $0.value.intersects(r) }.map(\.key))
+                selection = bandBase.union(frameStore.frames.filter { $0.value.intersects(r) }.map(\.key))
             }
             .onEnded { _ in
                 band = nil
@@ -261,7 +264,7 @@ struct GalleryView: View {
         let items: [MediaItem]
     }
 
-    private var sections: [DaySection] {
+    private static func group(_ items: [MediaItem]) -> [DaySection] {
         let cal = Calendar.current
         var result: [DaySection] = []
         var currentKey: DateComponents?
@@ -289,34 +292,69 @@ struct GalleryView: View {
         if cal.isDateInToday(date) { return "今天" }
         if cal.isDateInYesterday(date) { return "昨天" }
         let sameYear = cal.component(.year, from: date) == cal.component(.year, from: Date())
+        return (sameYear ? sameYearFormat : otherYearFormat).string(from: date)
+    }
+
+    private static let sameYearFormat = dayFormatter("M月d日 EEEE")
+    private static let otherYearFormat = dayFormatter("yyyy年M月d日")
+
+    private static func dayFormatter(_ format: String) -> DateFormatter {
         let f = DateFormatter()
         f.locale = Locale(identifier: "zh_CN")
-        f.dateFormat = sameYear ? "M月d日 EEEE" : "yyyy年M月d日"
-        return f.string(from: date)
+        f.dateFormat = format
+        return f
     }
 
     // MARK: - 数据
 
+    /// 切换类型、重新连上时：先显示上次的列表（秒开），再去手机上核对第一页，有变化才替换
     private func reload() async {
-        items = []
-        total = 0
         selection.removeAll()
         anchor = nil
-        await loadMore()
+        let cached = link.cachedList(kind)
+        setItems(cached?.items ?? [], total: cached?.total ?? 0, save: false)
+        await revalidate()
     }
 
-    private func loadMore() async {
-        guard let c = link.client, !loading, items.isEmpty || items.count < total else { return }
+    /// 取第一页和现有列表对比：一样就不动（已经往下加载的也保留），不一样就换成新的第一页
+    private func revalidate() async {
+        guard let c = link.client else { return }
+        let k = kind
         loading = true
         defer { loading = false }
         do {
-            let page = try await c.media(kind: kind, offset: items.count, limit: pageSize)
-            total = page.total
-            items += page.items
+            let page = try await c.media(kind: k, offset: 0, limit: pageSize)
+            guard k == kind else { return }
+            if page.total != total || Array(items.prefix(page.items.count)) != page.items {
+                setItems(page.items, total: page.total)
+            }
             message = nil
         } catch {
             message = error.localizedDescription
         }
+    }
+
+    private func loadMore() async {
+        guard let c = link.client, !loading, items.count < total else { return }
+        let k = kind
+        loading = true
+        defer { loading = false }
+        do {
+            let page = try await c.media(kind: k, offset: items.count, limit: pageSize)
+            guard k == kind else { return }
+            setItems(items + page.items, total: page.total)
+            message = nil
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
+    /// 列表只从这里改：顺带重新分组，并存进缓存
+    private func setItems(_ new: [MediaItem], total: Int, save: Bool = true) {
+        items = new
+        self.total = total
+        sections = kind == .audio ? [] : Self.group(new)
+        if save { link.storeList(kind, total: total, items: new) }
     }
 
     // MARK: - 操作
@@ -348,8 +386,7 @@ struct GalleryView: View {
             message = await link.trash(targets)
             if message == "已移到手机的「最近删除」" {
                 let gone = Set(targets.map(\.id))
-                items.removeAll { gone.contains($0.id) }
-                total -= gone.count
+                setItems(items.filter { !gone.contains($0.id) }, total: total - gone.count)
                 selection.subtract(gone)
             }
             try? await Task.sleep(for: .seconds(2.5))
@@ -374,6 +411,34 @@ struct GalleryView: View {
             try? await Task.sleep(for: .seconds(2))
             message = nil
         }
+    }
+}
+
+/// 存缩略图位置的盒子（引用类型，改它不会触发界面刷新）
+private final class FrameStore: @unchecked Sendable {
+    var frames: [MediaItem.ID: CGRect] = [:]
+}
+
+/// 解码好的缩略图：在后台线程解码（不卡滚动），按像素算内存，最多约 150 MB
+enum ThumbImages {
+    private static let memo: NSCache<NSString, NSImage> = {
+        let c = NSCache<NSString, NSImage>()
+        c.totalCostLimit = 150 << 20
+        return c
+    }()
+
+    static func cached(_ item: MediaItem) -> NSImage? { memo.object(forKey: item.cacheKey as NSString) }
+
+    static func decode(_ data: Data, for item: MediaItem) async -> NSImage? {
+        let key = item.cacheKey
+        let cg = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+            guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+            return CGImageSourceCreateImageAtIndex(src, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+        }.value
+        guard let cg else { return nil }
+        let image = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+        memo.setObject(image, forKey: key as NSString, cost: cg.width * cg.height * 4)
+        return image
     }
 }
 
@@ -411,7 +476,7 @@ struct ThumbCell: View {
         Color.gray.opacity(0.12)
             .aspectRatio(1, contentMode: .fit)
             .overlay {
-                if let image {
+                if let image = image ?? ThumbImages.cached(item) {
                     Image(nsImage: image).resizable().scaledToFill()
                         .transition(.opacity)
                 }
@@ -461,10 +526,12 @@ struct ThumbCell: View {
             .onHover { hovering = $0 }
             .help(item.name)
             .task(id: item.cacheKey) {
-                guard let c = link.client, let cache = link.thumbs else { return }
-                if let d = await cache.data(for: item, client: c) {
-                    withAnimation(.easeIn(duration: 0.15)) { image = NSImage(data: d) }
-                }
+                // 滚回来的格子直接用内存里解码好的图，不闪、不重新解码
+                if ThumbImages.cached(item) != nil { return }
+                guard let c = link.client, let cache = link.thumbs,
+                      let d = await cache.data(for: item, client: c),
+                      let decoded = await ThumbImages.decode(d, for: item) else { return }
+                withAnimation(.easeIn(duration: 0.15)) { image = decoded }
             }
     }
 }

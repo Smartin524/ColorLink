@@ -47,8 +47,8 @@ class NotifyListener : NotificationListenerService() {
         connected = true
         AppLog.init(this)
         AppLog.i("ColorLink.Notify", "通知监听已绑定")
-        BleWake.register(this)
         LinkCore.start(this)
+        BleWake.update(this)
         // 进程有了保活的依靠，空闲时就不需要前台服务了。前台服务可能正在启动，过一会儿再复查一次
         LinkService.refresh(this)
         android.os.Handler(mainLooper).postDelayed({ LinkService.refresh(this) }, 3_000)

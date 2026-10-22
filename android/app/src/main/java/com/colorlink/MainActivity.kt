@@ -169,7 +169,7 @@ class MainActivity : Activity() {
     private fun startAll() {
         LinkCore.start(this)
         LinkService.refresh(this)
-        BleWake.register(this)
+        BleWake.update(this)
         NotifyListener.rebindIfNeeded(this)
     }
 

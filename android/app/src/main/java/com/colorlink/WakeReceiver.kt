@@ -15,9 +15,9 @@ class WakeReceiver : BroadcastReceiver() {
         AppLog.i(TAG, "收到广播 ${intent.action}")
         when (intent.action) {
             Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED -> {
-                // 系统扫描在重启后会丢失，要重新注册
-                BleWake.register(ctx)
+                // 系统扫描在重启后会丢失，要重新注册（开机时 Wi-Fi 可能还没连上，那就等网络回调再注册）
                 LinkCore.start(ctx)
+                BleWake.update(ctx)
                 LinkService.refresh(ctx)
             }
 

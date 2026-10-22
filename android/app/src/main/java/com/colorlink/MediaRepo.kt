@@ -87,8 +87,23 @@ class MediaRepo(private val ctx: Context) {
         cr.query(kind.uri, projection, args, null)?.use { c ->
             while (c.moveToNext()) items.put(toJson(kind, c))
         }
-        val total = cr.query(kind.uri, arrayOf(MediaColumns._ID), null, null)?.use { it.count } ?: 0
-        return JSONObject().put("total", total).put("items", items)
+        return JSONObject().put("total", total(kind)).put("items", items)
+    }
+
+    /** 每种媒体的总数，按媒体库「代数」缓存：没有增删就不重新数（一万多张照片数一次要把所有 ID 读一遍） */
+    private val totals = HashMap<Kind, Pair<Long, Int>>()
+
+    @Synchronized
+    private fun total(kind: Kind): Int {
+        val generation = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            MediaStore.getGeneration(ctx, MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        } else {
+            -1L
+        }
+        totals[kind]?.let { (gen, n) -> if (gen == generation && gen >= 0) return n }
+        val n = cr.query(kind.uri, arrayOf(MediaColumns._ID), null, null)?.use { it.count } ?: 0
+        totals[kind] = generation to n
+        return n
     }
 
     fun item(kind: Kind, id: Long): JSONObject? =

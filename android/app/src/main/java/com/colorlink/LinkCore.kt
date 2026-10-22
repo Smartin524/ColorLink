@@ -101,6 +101,7 @@ object LinkCore {
                 }
                 lastSubscribers = n
                 LinkService.refresh(app)
+                BleWake.update(app)
             }
         }
         app.registerReceiver(powerReceiver, IntentFilter(Intent.ACTION_POWER_CONNECTED))
@@ -209,6 +210,8 @@ object LinkCore {
         val cb = object : ConnectivityManager.NetworkCallback() {
             private var first = true
             override fun onAvailable(network: Network) {
+                // 网卡地址要过一会儿才就绪，稍后再判断有没有局域网
+                handler.postDelayed({ BleWake.update(app) }, 1_000)
                 if (first) {
                     first = false
                     return
@@ -219,6 +222,10 @@ object LinkCore {
                     // 换了网络，旧连接都已失效，不管当前有没有 Mac 连着都敲门
                     knockSoon(force = true)
                 }, 1_000)
+            }
+
+            override fun onLost(network: Network) {
+                handler.postDelayed({ BleWake.update(app) }, 1_000)
             }
         }
         cm.registerNetworkCallback(
@@ -295,7 +302,10 @@ object LinkCore {
         override fun onReceive(context: Context, intent: Intent) {
             if (isInitialStickyBroadcast) return // 注册时系统会立刻补发一次上次的状态
             AppLog.i(TAG, "热点状态变化，敲门")
-            handler.postDelayed({ knockSoon(force = true) }, 2_000)
+            handler.postDelayed({
+                BleWake.update(app)
+                knockSoon(force = true)
+            }, 2_000)
         }
     }
 

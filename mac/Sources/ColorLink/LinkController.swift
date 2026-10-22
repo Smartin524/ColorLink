@@ -306,6 +306,44 @@ final class LinkController: ObservableObject {
         }
     }
 
+    // MARK: - 相册列表缓存
+
+    /// 每种类型上次的列表：内存里一份，磁盘上存前 1000 项（重开 App 也能秒开相册）
+    private struct CachedList: Codable {
+        let total: Int
+        let items: [MediaItem]
+    }
+
+    private var lists: [MediaKind: CachedList] = [:]
+    private var listsDevice: String?
+
+    private func listFile(_ kind: MediaKind) -> URL? {
+        guard let id = device?.deviceId else { return nil }
+        return AppDirs.caches.appendingPathComponent("lists/\(id)-\(kind.rawValue).json")
+    }
+
+    func cachedList(_ kind: MediaKind) -> (total: Int, items: [MediaItem])? {
+        if listsDevice != device?.deviceId {
+            lists = [:]
+            listsDevice = device?.deviceId
+        }
+        if lists[kind] == nil, let file = listFile(kind), let data = try? Data(contentsOf: file) {
+            lists[kind] = try? JSONDecoder().decode(CachedList.self, from: data)
+        }
+        return lists[kind].map { ($0.total, $0.items) }
+    }
+
+    func storeList(_ kind: MediaKind, total: Int, items: [MediaItem]) {
+        lists[kind] = CachedList(total: total, items: items)
+        listsDevice = device?.deviceId
+        guard let file = listFile(kind) else { return }
+        let snapshot = CachedList(total: total, items: Array(items.prefix(1000)))
+        Task.detached(priority: .utility) {
+            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? JSONEncoder().encode(snapshot).write(to: file, options: .atomic)
+        }
+    }
+
     // MARK: - 已下载
 
     private func downloadKey(_ item: MediaItem) -> String { "\(device?.deviceId ?? "")/\(item.cacheKey)" }

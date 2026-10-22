@@ -21,6 +21,9 @@ private const val TAG = "ColorLink.Ble"
  *
  * 没用 CompanionDeviceManager：它按蓝牙地址识别设备，而 Mac 广播用的是会定期变化的随机地址。
  * 这里按服务 UUID 过滤，不受地址变化影响。
+ *
+ * 只在「没连着 Mac、但有 Wi-Fi 或热点」时扫描（update 决定）：连着时扫到也没用，没有局域网时扫到也连不上。
+ * 系统会把整块蓝牙芯片的耗电按扫描时长分摊给各个 App，常开扫描在电池设置里会显得 ColorLink 很耗电。
  */
 object BleWake {
     const val ACTION = "com.colorlink.BLE_WAKE"
@@ -31,8 +34,29 @@ object BleWake {
     fun hasPermission(ctx: Context) = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
         ctx.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
 
+    /** 当前是否在扫描（本进程里的记录；进程刚启动时未知） */
+    private var scanning: Boolean? = null
+
+    /** 按当前状态开 / 关扫描：没连着 Mac 且有局域网时才扫。状态变化时随时调用 */
+    fun update(ctx: Context) {
+        val want = EventBus.count == 0 && hasLan()
+        if (want == scanning) return
+        if (want) register(ctx) else unregister(ctx)
+    }
+
+    private fun unregister(ctx: Context) {
+        val scanner = ctx.getSystemService(BluetoothManager::class.java)?.adapter?.bluetoothLeScanner
+        try {
+            scanner?.stopScan(pendingIntent(ctx))
+            scanning = false
+            AppLog.i(TAG, "蓝牙唤醒暂停（${if (EventBus.count > 0) "已连着 Mac" else "没有 Wi-Fi 或热点"}）")
+        } catch (e: SecurityException) {
+            AppLog.w(TAG, "停止蓝牙扫描失败", e)
+        }
+    }
+
     /** 返回是否注册成功。重复调用没关系，系统会替换掉旧的。 */
-    fun register(ctx: Context): Boolean {
+    private fun register(ctx: Context): Boolean {
         if (!hasPermission(ctx)) {
             AppLog.i(TAG, "未授予蓝牙扫描权限（或系统低于 Android 12），跳过蓝牙唤醒")
             return false
@@ -55,6 +79,7 @@ object BleWake {
         return try {
             val code = scanner.startScan(filters, settings, pendingIntent(ctx))
             AppLog.i(TAG, "蓝牙唤醒已注册（硬件过滤：${adapter.isOffloadedFilteringSupported}），结果 $code")
+            scanning = code == 0
             code == 0
         } catch (e: SecurityException) {
             AppLog.w(TAG, "注册蓝牙唤醒失败", e)
