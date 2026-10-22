@@ -11,28 +11,28 @@ struct PanelView: View {
     @EnvironmentObject var ui: PanelState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             header
             if link.isConnected {
                 PhotoStrip()
             }
         }
-        .padding(14)
-        .frame(width: 320)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.separator.opacity(0.5)))
+        .padding(10)
+        .frame(width: 250)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.separator.opacity(0.5)))
         .fixedSize(horizontal: false, vertical: true)
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Image(systemName: link.isConnected ? "iphone.radiowaves.left.and.right" : "iphone.slash")
-                .font(.title2)
+                .font(.body)
                 .foregroundStyle(link.isConnected ? .green : .secondary)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.headline).lineLimit(1)
-                Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 4)
             if !ui.dropMode { moreMenu }
@@ -58,7 +58,7 @@ struct PanelView: View {
             Button("退出 ColorLink") { NSApp.terminate(nil) }
         } label: {
             Image(systemName: "ellipsis.circle")
-                .font(.title3)
+                .font(.body)
                 .foregroundStyle(.secondary)
         }
         .menuStyle(.borderlessButton)
@@ -96,34 +96,34 @@ struct PhotoStrip: View {
 
     var body: some View {
         let target = ui.dropTargeted
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             ForEach(link.recent) { RecentThumb(item: $0) }
             if link.recent.isEmpty {
-                Color.clear.frame(maxWidth: .infinity, minHeight: 88)
+                Color.clear.frame(maxWidth: .infinity, minHeight: 72)
             }
         }
-        .padding(6)
+        .padding(5)
         .opacity(ui.dropMode || target ? 0.35 : 1)
         .overlay {
             // 拖拽时在照片上盖一层提示；松手即发送
             if ui.dropMode || target || link.transfer != nil {
                 VStack(spacing: 4) {
                     Image(systemName: link.transfer == nil ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
-                        .font(.system(size: 28))
+                        .font(.system(size: 22))
                         .symbolEffect(.pulse, isActive: link.transfer != nil)
                     Text(link.transfer ?? (target ? "松手发送到手机" : "拖到这里，发送到手机"))
-                        .font(.callout.weight(.semibold))
+                        .font(.caption.weight(.semibold))
                 }
                 .foregroundStyle(target ? Color.accentColor : .primary)
                 .allowsHitTesting(false)
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: 9)
                 .fill(target ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: 9)
                 .strokeBorder(target ? Color.accentColor : .clear, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
         )
         .animation(.easeOut(duration: 0.15), value: target)
@@ -154,7 +154,7 @@ struct RecentThumb: View {
             }
         } label: {
             Color.gray.opacity(0.15)
-                .frame(width: 92, height: 92)
+                .frame(width: 72, height: 72)
                 .overlay {
                     if let image { Image(nsImage: image).resizable().scaledToFill() }
                 }
@@ -167,8 +167,8 @@ struct RecentThumb: View {
                     case .failed: badge("失败", "xmark.circle.fill")
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .contentShape(RoundedRectangle(cornerRadius: 8))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .contentShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
@@ -181,7 +181,7 @@ struct RecentThumb: View {
 
     private func badge(_ text: String?, _ icon: String?) -> some View {
         VStack(spacing: 2) {
-            if let icon { Image(systemName: icon).font(.title3) } else { ProgressView().controlSize(.small) }
+            if let icon { Image(systemName: icon).font(.callout) } else { ProgressView().controlSize(.small) }
             if let text { Text(text).font(.caption2.weight(.semibold)) }
         }
         .foregroundStyle(.white)
