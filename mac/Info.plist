@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.colorlink.mac</string>
+    <key>CFBundleName</key>
+    <string>ColorLink</string>
+    <key>CFBundleDisplayName</key>
+    <string>ColorLink</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleExecutable</key>
+    <string>ColorLink</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>15.0</string>
+    <!-- 只在菜单栏显示，不占 Dock -->
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>ColorLink 用蓝牙广播告诉手机“电脑就在旁边”，手机据此自动连接。文件不经过蓝牙传输。</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>ColorLink 需要在局域网中查找并连接你的手机。</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_colorlink._tcp</string>
+    </array>
+</dict>
+</plist>
