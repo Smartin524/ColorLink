@@ -31,7 +31,7 @@ import android.widget.Toast
 
 /**
  * 设置页：卡片式，只放状态和开关，不放说明文字（排查靠日志）。
- * - 展开：正中间是链环、名字和状态小灯；点下方「⌄」收起露出设置，在设置顶部下拉恢复
+ * - 展开：正中间是链环、名字和状态小灯；上划收起露出设置，在设置顶部下拉恢复
  * - 需要处理：只列出不满足的条件（权限给过一次就稳定，不必常驻），全部满足时整块隐藏
  * - 配对码：只在配对新电脑时需要，配对过之后收起
  * - 空闲保活开关、配对新电脑、取消所有配对
@@ -56,13 +56,12 @@ class MainActivity : Activity() {
     private lateinit var scroll: ScrollView
     private var insetTop = 0
     private var insetBottom = 0
-    /** 收起按钮（大链环下方的「⌄」） */
-    private lateinit var collapseButton: View
     /** 0 = 展开（大链环），1 = 收起（小链环在顶部，设置卡片可见） */
     private var collapse = 0f
     private var collapseAnimator: android.animation.ValueAnimator? = null
     private var touchDownY = 0f
-    private var pulling = false
+    /** 这次触摸还能触发收起 / 展开（每次按下只触发一次） */
+    private var swipeArmed = false
     private lateinit var runText: TextView
     private lateinit var codeText: TextView
     /** 运行条件：只显示不满足的项，全部满足时整块隐藏 */
@@ -131,7 +130,6 @@ class MainActivity : Activity() {
             alpha = 0f // 首次摆好位置前先隐藏，免得闪一下左上角
             addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> applyCollapse() }
         }
-        collapseButton = collapseButton()
         val screen = android.widget.FrameLayout(this).apply {
             setBackgroundColor(bg)
             addView(scroll)
@@ -139,7 +137,6 @@ class MainActivity : Activity() {
             addView(header, android.widget.FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
             ))
-            addView(collapseButton, android.widget.FrameLayout.LayoutParams(dp(48), dp(48), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
             // Android 15 起强制全面屏：内容避开状态栏和导航栏
             setOnApplyWindowInsetsListener { _, insets ->
                 val bars = insets.getInsets(WindowInsets.Type.systemBars())
@@ -147,8 +144,6 @@ class MainActivity : Activity() {
                 insetBottom = bars.bottom
                 scroll.setPadding(0, bars.top + dp(64), 0, bars.bottom)
                 topBar.layoutParams = topBar.layoutParams.apply { height = bars.top + dp(56) }
-                collapseButton.layoutParams = (collapseButton.layoutParams as android.widget.FrameLayout.LayoutParams)
-                    .apply { bottomMargin = bars.bottom + dp(28) }
                 insets
             }
             addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> applyCollapse() }
@@ -180,20 +175,6 @@ class MainActivity : Activity() {
     // region 卡片
 
     /** 第一屏：正中间是图标、名字和状态小灯（绿：已连接；灰：待命中；红：没在运行），底部一个下滑提示 */
-    /** 大链环下方的收起按钮：点一下收起，露出设置 */
-    private fun collapseButton() = android.widget.FrameLayout(this).apply {
-        background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(card)
-        }
-        foreground = rippleBackground()
-        elevation = 0f
-        contentDescription = "显示设置"
-        addView(label("⌄", 24f, secondary).apply { gravity = Gravity.CENTER },
-            android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        setOnClickListener { animateCollapse(1f) }
-    }
-
     /** 浮层标志：链环（不加底板，融在背景里）+ 名字和状态小灯 */
     private fun header() = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
@@ -244,8 +225,6 @@ class MainActivity : Activity() {
         scroll.translationY = (1f - e) * screenH * 0.6f
         scroll.alpha = ((c - 0.15f) / 0.6f).coerceIn(0f, 1f)
         scroll.visibility = if (c == 0f) View.INVISIBLE else View.VISIBLE
-        collapseButton.alpha = (1f - c * 3f).coerceIn(0f, 1f)
-        collapseButton.visibility = if (c >= 0.34f) View.INVISIBLE else View.VISIBLE
     }
 
     /** 收起 / 展开的过渡动画。期间把标志和设置交给 GPU 缓存成纹理，只做变换，不逐帧重绘，避免掉帧 */
@@ -264,31 +243,51 @@ class MainActivity : Activity() {
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationStart(a: android.animation.Animator) {
                     layers.forEach { v -> v.setLayerType(View.LAYER_TYPE_HARDWARE, null) }
+                    highRefreshRate(true)
                 }
 
                 override fun onAnimationEnd(a: android.animation.Animator) {
                     layers.forEach { v -> v.setLayerType(View.LAYER_TYPE_NONE, null) }
+                    highRefreshRate(false)
                 }
             })
             start()
         }
     }
 
-    /** 收起状态下，在设置列表顶部往下拉 → 恢复大链环 */
+    /**
+     * 动画期间请求屏幕最高刷新率（120Hz），结束后交还系统按场景自行调节，平时不额外耗电。
+     * ColorOS 的「智能」刷新率在静止界面会降到 60Hz 甚至更低，不请求的话过渡动画可能只有 60 帧。
+     */
+    private fun highRefreshRate(on: Boolean) {
+        val attrs = window.attributes
+        attrs.preferredRefreshRate = if (on) display.supportedModes.maxOf { it.refreshRate } else 0f
+        window.attributes = attrs
+    }
+
+    /** 展开时上划收起，收起后在设置列表顶部下拉展开：一对镜像手势，每次按下只触发一次 */
     override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
         when (ev.actionMasked) {
             android.view.MotionEvent.ACTION_DOWN -> {
                 touchDownY = ev.rawY
-                pulling = collapse == 1f && scroll.scrollY == 0
+                swipeArmed = collapse == 0f || (collapse == 1f && scroll.scrollY == 0)
             }
-            android.view.MotionEvent.ACTION_MOVE -> if (pulling && ev.rawY - touchDownY > dp(72)) {
-                pulling = false
-                animateCollapse(0f)
-                // 取消子视图正在处理的触摸，免得同时触发点击
-                val cancel = android.view.MotionEvent.obtain(ev).apply { action = android.view.MotionEvent.ACTION_CANCEL }
-                super.dispatchTouchEvent(cancel)
-                cancel.recycle()
-                return true
+            android.view.MotionEvent.ACTION_MOVE -> if (swipeArmed) {
+                val dy = ev.rawY - touchDownY
+                val target = when {
+                    collapse == 0f && dy < -dp(48) -> 1f
+                    collapse == 1f && dy > dp(72) -> 0f
+                    else -> null
+                }
+                if (target != null) {
+                    swipeArmed = false
+                    animateCollapse(target)
+                    // 取消子视图正在处理的触摸，免得同时触发点击或滚动
+                    val cancel = android.view.MotionEvent.obtain(ev).apply { action = android.view.MotionEvent.ACTION_CANCEL }
+                    super.dispatchTouchEvent(cancel)
+                    cancel.recycle()
+                    return true
+                }
             }
         }
         return super.dispatchTouchEvent(ev)
