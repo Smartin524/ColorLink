@@ -7,7 +7,7 @@ public enum MediaKind: String, Codable, CaseIterable, Sendable {
         switch self {
         case .image: "照片"
         case .video: "视频"
-        case .audio: "录音"
+        case .audio: "音频"
         }
     }
 }

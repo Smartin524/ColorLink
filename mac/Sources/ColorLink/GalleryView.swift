@@ -2,7 +2,7 @@ import AppKit
 import ColorLinkCore
 import SwiftUI
 
-/// 手机相册：照片 / 视频按日期分组成网格，录音是列表。
+/// 手机相册：照片 / 视频按日期分组成网格，音频是列表。
 ///
 /// 交互：左键单击弹出操作菜单；⌘ 单击加选 / 取消，⇧ 单击连续选择；拖动框选；点空白处、Esc 取消；⌘A 全选。
 /// 选中多项时点其中一张，菜单作用于全部选中项。右键菜单同样可用。
@@ -155,7 +155,7 @@ struct GalleryView: View {
     }
 
     private var audioList: some View {
-        // 录音用系统列表自带的多选：单击选中，⌘ / ⇧ 多选，双击播放，右键菜单
+        // 音频用系统列表自带的多选：单击选中，⌘ / ⇧ 多选，双击播放，右键菜单
         List(selection: $selection) {
             ForEach(items) { item in
                 AudioRow(item: item)
