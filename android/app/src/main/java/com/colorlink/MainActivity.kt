@@ -158,12 +158,35 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        leavingForSettings = false
         handler.post(tick)
     }
 
     override fun onPause() {
         handler.removeCallbacks(tick)
         super.onPause()
+    }
+
+    /** 自己跳去系统设置页（开权限等）时为 true：这种离开要能按返回回来，不能把卡片清掉 */
+    private var leavingForSettings = false
+
+    override fun startActivity(intent: Intent?, options: Bundle?) {
+        leavingForSettings = true
+        super.startActivity(intent, options)
+    }
+
+    /**
+     * 离开界面就把卡片从最近任务里清掉。excludeFromRecents 只在别的任务之后隐藏，
+     * 从 ColorLink 直接打开多任务时卡片仍在，点「清除」会把整个 App 连同后台连接一起结束；
+     * ColorOS 也不让给「不显示在最近任务」的应用加锁。卡片不在了，就没有可清的。
+     * 后台连接在服务里，和这个界面无关。息屏、跳去设置页时不清，回来还能看到。
+     */
+    override fun onStop() {
+        super.onStop()
+        val interactive = getSystemService(android.os.PowerManager::class.java).isInteractive
+        if (!isChangingConfigurations && !leavingForSettings && interactive && !isFinishing) {
+            finishAndRemoveTask()
+        }
     }
 
     private fun startAll() {
