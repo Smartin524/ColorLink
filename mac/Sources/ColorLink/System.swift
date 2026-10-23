@@ -62,7 +62,7 @@ enum Clipboard {
 enum Notifier {
     private static let delegate = Delegate()
 
-    static var available: Bool { Bundle.main.bundleIdentifier != nil }
+    static var available: Bool { Bundle.main.bundleIdentifier != nil && !LinkController.demo }
 
     static func setUp() {
         guard available else { return }

@@ -22,7 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         link = LinkController()
         Windows.shared.link = link
         statusBar = StatusBarController(link: link)
-        LoginItem.enableOnFirstRun()
+        if !LinkController.demo { LoginItem.enableOnFirstRun() }
 
         // 调试用：带 --show-panel / --show-drop / --show-gallery 启动时自动打开对应界面，方便截图核对
         let args = CommandLine.arguments

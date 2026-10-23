@@ -65,6 +65,8 @@ final class LinkController: ObservableObject {
     private var streamTask: Task<Void, Error>?
     private var wakeCounter = 0
 
+    nonisolated static let demo = CommandLine.arguments.contains("--demo")
+
     init() {
         UserDefaults.standard.register(defaults: ["autoCopyScreenshots": true, "mirrorNotifications": true, "autoCopyCodes": true])
         // 没连上手机也能翻本机保存的相册
@@ -82,7 +84,8 @@ final class LinkController: ObservableObject {
                 self?.wake()
             }
         }
-        browser.start()
+        // 录演示视频用（--demo）：只连指定的模拟手机，不搜索、不广播蓝牙、不发通知，免得弹出系统权限框
+        if !Self.demo { browser.start() }
 
         knocks.tokenFor = { id in PairedStore.all().first { $0.deviceId == id }?.token }
         knocks.onKnock = { [weak self] knock in
@@ -101,11 +104,11 @@ final class LinkController: ObservableObject {
             }
         }
         knocks.start()
-        if Bundle.main.bundleIdentifier != nil {
+        if Bundle.main.bundleIdentifier != nil, !Self.demo {
             // 以 .app 运行时才有 Info.plist 里的蓝牙用途说明，否则系统会直接终止进程
             beacon.start()
         }
-        Notifier.setUp()
+        if !Self.demo { Notifier.setUp() }
 
         // Mac 从睡眠中醒来时立刻重试，不等退避计时
         NSWorkspace.shared.notificationCenter.addObserver(

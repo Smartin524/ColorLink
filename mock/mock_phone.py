@@ -47,6 +47,7 @@ DEFAULT_DIRS = ["/System/Library/Desktop Pictures", "/System/Library/Sounds"]
 
 DEVICE_ID = "mock-oppo-0001"
 DEVICE_NAME = "OPPO Find X8（模拟）"
+BATTERY = None
 
 
 def kind_of(path):
@@ -215,7 +216,7 @@ class State:
 
     def info(self):
         return {"deviceId": DEVICE_ID, "name": DEVICE_NAME, "model": "PHZ110", "android": "15",
-                "battery": random.randint(40, 95), "charging": False}
+                "battery": BATTERY or random.randint(40, 95), "charging": False}
 
 
 STATE = None
@@ -510,7 +511,13 @@ def main():
     ap.add_argument("--no-mdns", action="store_true", help="不广播 mDNS（只能手动输入地址连接）")
     ap.add_argument("--no-knock", action="store_true", help="启动时不敲门（用来对比有无敲门的重连速度）")
     ap.add_argument("--no-prewarm", action="store_true", help="不预生成缩略图（用来测冷启动）")
+    ap.add_argument("--name", help="手机名称（录演示视频时用真实型号）")
+    ap.add_argument("--battery", type=int, help="固定电量（默认随机）")
     args = ap.parse_args()
+    global DEVICE_NAME, BATTERY
+    if args.name:
+        DEVICE_NAME = args.name
+    BATTERY = args.battery
 
     os.makedirs(os.path.join(args.data, "thumbs"), exist_ok=True)
     lib = Library(args.dir or DEFAULT_DIRS, os.path.join(args.data, "thumbs"))
