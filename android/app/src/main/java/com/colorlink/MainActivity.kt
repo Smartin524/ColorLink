@@ -94,8 +94,8 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AppLog.init(this)
-        // 清单里已设 excludeFromRecents，但覆盖安装前就存在的旧任务不会自动带上这个标记，这里再标一次
-        getSystemService(android.app.ActivityManager::class.java).appTasks.forEach { it.setExcludeFromRecents(true) }
+        // 旧版本标过「不显示在最近任务」，覆盖安装后已有的任务还带着这个标记，撤掉才能在多任务里加锁
+        getSystemService(android.app.ActivityManager::class.java).appTasks.forEach { it.setExcludeFromRecents(false) }
         actionBar?.hide()
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
@@ -158,35 +158,12 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        leavingForSettings = false
         handler.post(tick)
     }
 
     override fun onPause() {
         handler.removeCallbacks(tick)
         super.onPause()
-    }
-
-    /** 自己跳去系统设置页（开权限等）时为 true：这种离开要能按返回回来，不能把卡片清掉 */
-    private var leavingForSettings = false
-
-    override fun startActivity(intent: Intent?, options: Bundle?) {
-        leavingForSettings = true
-        super.startActivity(intent, options)
-    }
-
-    /**
-     * 离开界面就把卡片从最近任务里清掉。excludeFromRecents 只在别的任务之后隐藏，
-     * 从 ColorLink 直接打开多任务时卡片仍在，点「清除」会把整个 App 连同后台连接一起结束；
-     * ColorOS 也不让给「不显示在最近任务」的应用加锁。卡片不在了，就没有可清的。
-     * 后台连接在服务里，和这个界面无关。息屏、跳去设置页时不清，回来还能看到。
-     */
-    override fun onStop() {
-        super.onStop()
-        val interactive = getSystemService(android.os.PowerManager::class.java).isInteractive
-        if (!isChangingConfigurations && !leavingForSettings && interactive && !isFinishing) {
-            finishAndRemoveTask()
-        }
     }
 
     private fun startAll() {
@@ -402,9 +379,6 @@ class MainActivity : Activity() {
             running -> "待命中"
             else -> "未运行"
         }
-        val killed = ColorOS.recentExits(this, 8).count {
-            it.wasRunningService && it.hint != null && it.time > System.currentTimeMillis() - 24 * 3600_000L
-        }
         runText.text = buildString {
             append(
                 when {
@@ -414,7 +388,6 @@ class MainActivity : Activity() {
                 },
             )
             if (running) append(" · ${formatUptime(LinkCore.uptimeMillis)}")
-            if (killed > 0) append(" · 被结束 $killed 次")
         }
         // 配对码：从没配对过就一直显示；配对过之后点「配对新电脑」才显示
         val code = Prefs.pairCode(this)

@@ -138,14 +138,6 @@ object ColorOS {
         }
     }
 
-    /** 根据退出记录推断最可能没设好的项，没有可疑记录时返回 null。 */
-    fun diagnose(exits: List<Exit>): String? {
-        val dayAgo = System.currentTimeMillis() - 24 * 3600_000L
-        val killed = exits.filter { it.wasRunningService && it.time > dayAgo && it.hint != null }
-        if (killed.isEmpty()) return null
-        return "过去 24 小时服务被系统结束了 ${killed.size} 次。最近一次：${killed.first().reason}。\n建议：${killed.first().hint}"
-    }
-
     private fun describe(reason: Int): Pair<String, String?> = when (reason) {
         ApplicationExitReason.EXIT_SELF -> "App 自己退出" to null
         ApplicationExitReason.SIGNALED -> "被系统发信号结束" to "多半是 ColorOS 后台清理。检查「完全允许后台行为」和「自启动」"

@@ -58,10 +58,9 @@
 
         <activity
             android:name=".MainActivity"
-            android:excludeFromRecents="true"
             android:exported="true">
-            <!-- 不在最近任务（多任务）里显示：后台连接靠通知监听和前台服务，不需要卡片；
-                 不在列表里，一键清理也清不到它 -->
+            <!-- 留在最近任务里：在多任务里给卡片加锁，「清除」才会跳过它。
+                 不显示在最近任务的应用 ColorOS 不让加锁，从界面直接进多任务时卡片又照样在，一清就连后台一起结束 -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
