@@ -62,19 +62,28 @@ class LinkService : Service() {
         show()
     }
 
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+
     /**
-     * 深浅色切换时重发一次通知：通知栏里的 App 图标是发通知那一刻按当时的深浅色取的，
-     * 不重发的话夜里发的通知白天还是深色图标。流体云弹出期间不动它，几秒后降级时自然会重发
+     * 深浅色切换后重发通知：通知栏里的 App 图标是发通知那一刻按当时的深浅色取的，
+     * 不重发的话夜里发的通知白天还是深色图标。
+     * 不能一收到切换就发：那时通知栏（SystemUI）往往还没切过去，会又取到旧主题的图标，看起来就像深浅配反了。
+     * 所以等几秒再发，发两次保险。流体云弹出期间不动它，几秒后降级时自然会重发
      */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         val now = newConfig.uiMode and Configuration.UI_MODE_NIGHT_MASK
         if (now == night) return
         night = now
-        val state = shown ?: return
-        if (state == Notifications.LinkState.ANNOUNCING) return
-        AppLog.i(TAG, "切换到${if (now == Configuration.UI_MODE_NIGHT_YES) "深色" else "浅色"}，重发通知刷新图标")
-        getSystemService(NotificationManager::class.java).notify(Notifications.ID_LINK, Notifications.link(this, state))
+        AppLog.i(TAG, "切换到${if (now == Configuration.UI_MODE_NIGHT_YES) "深色" else "浅色"}，稍后重发通知刷新图标")
+        handler.removeCallbacksAndMessages(null)
+        for (delay in longArrayOf(2_000, 6_000)) {
+            handler.postDelayed({
+                val state = shown ?: return@postDelayed
+                if (state == Notifications.LinkState.ANNOUNCING) return@postDelayed
+                getSystemService(NotificationManager::class.java).notify(Notifications.ID_LINK, Notifications.link(this, state))
+            }, delay)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -108,6 +117,7 @@ class LinkService : Service() {
 
     // 核心（LinkCore）留在进程里继续运行，由通知监听保活
     override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
         AppLog.i(TAG, "前台服务已停止，通知栏不再显示")
         super.onDestroy()
     }
