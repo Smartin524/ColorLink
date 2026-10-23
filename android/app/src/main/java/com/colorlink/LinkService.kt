@@ -5,6 +5,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.res.Configuration
 import android.os.IBinder
 
 private const val TAG = "ColorLink.Service"
@@ -50,13 +51,30 @@ class LinkService : Service() {
     }
 
     private var shown: Notifications.LinkState? = null
+    private var night = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         LinkCore.start(this)
+        night = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
         show()
+    }
+
+    /**
+     * 深浅色切换时重发一次通知：通知栏里的 App 图标是发通知那一刻按当时的深浅色取的，
+     * 不重发的话夜里发的通知白天还是深色图标。流体云弹出期间不动它，几秒后降级时自然会重发
+     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val now = newConfig.uiMode and Configuration.UI_MODE_NIGHT_MASK
+        if (now == night) return
+        night = now
+        val state = shown ?: return
+        if (state == Notifications.LinkState.ANNOUNCING) return
+        AppLog.i(TAG, "切换到${if (now == Configuration.UI_MODE_NIGHT_YES) "深色" else "浅色"}，重发通知刷新图标")
+        getSystemService(NotificationManager::class.java).notify(Notifications.ID_LINK, Notifications.link(this, state))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
