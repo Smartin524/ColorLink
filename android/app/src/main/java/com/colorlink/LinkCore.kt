@@ -38,8 +38,8 @@ object LinkCore {
     var running = false
         private set
 
-    /** Mac 刚连上时的“播报窗口”：流体云只在这几秒里显示，之后自动收起，不常驻。 */
-    private const val ANNOUNCE_MS = 6_000L
+    /** Mac 刚连上时的“播报窗口”：流体云弹一下就收（像一次性通知），不常驻。 */
+    private const val ANNOUNCE_MS = 2_500L
 
     @Volatile
     private var announceUntil = 0L
