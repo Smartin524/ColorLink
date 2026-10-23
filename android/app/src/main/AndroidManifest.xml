@@ -93,6 +93,12 @@
             </intent-filter>
         </activity>
 
+        <!-- 兜底的定时检查：进程被杀后由系统按时叫醒 -->
+        <service
+            android:name=".Watchdog"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
         <service
             android:name=".LinkService"
             android:exported="false"

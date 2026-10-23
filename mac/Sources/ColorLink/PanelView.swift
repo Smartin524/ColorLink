@@ -133,7 +133,8 @@ struct PanelView: View {
     }
 
     private var title: String {
-        switch link.state {
+        if link.phoneAppDown, !link.isConnected { return "手机上的 ColorLink 没在运行" }
+        return switch link.state {
         case .searching: "正在寻找手机…"
         case .needsPairing(let n): "发现「\(n)」"
         case .connecting(let n): "正在连接「\(n)」"
@@ -143,6 +144,7 @@ struct PanelView: View {
     }
 
     private var subtitle: String {
+        if link.phoneAppDown, !link.isConnected { return "可能被系统停掉了，在手机上打开一下就能恢复" }
         switch link.state {
         case .searching: return "请在手机上打开 ColorLink，并连接同一个 Wi-Fi"
         case .needsPairing: return "尚未配对，点右上角「⋯」→ 配对手机"

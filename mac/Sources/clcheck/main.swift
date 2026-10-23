@@ -220,6 +220,16 @@ try? FileManager.default.removeItem(at: batchDir)
 saved.first.map { try? FileManager.default.removeItem(at: $0.deletingLastPathComponent()) }
 pb.releaseGlobally()
 
+// ⑨-3 判断手机上的 ColorLink 是否在运行（Mac 连不上时用）
+step("端口探测")
+let probeOpen = await PortProbe.check(host: endpoint.host, port: endpoint.port)
+let probeRefused = await PortProbe.check(host: "127.0.0.1", port: 9)
+let probeAway = await PortProbe.check(host: "10.255.255.1", port: 8765, timeout: 1.5)
+guard probeOpen == .open, probeRefused == .refused, probeAway == .unreachable else {
+    fail("应为 通/拒绝/连不到，实际 \(probeOpen)/\(probeRefused)/\(probeAway)")
+}
+ok("手机端口在听 → 通；在线但没在运行 → 拒绝；不在网络里 → 连不到")
+
 // ⑩ 事件流
 step("事件流")
 let events = client.events()

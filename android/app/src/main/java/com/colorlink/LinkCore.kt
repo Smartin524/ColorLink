@@ -109,6 +109,7 @@ object LinkCore {
         // 开关热点时敲门：Mac 可能正要连上手机热点，而这对手机来说不算“网络变化”
         app.registerReceiver(tetherReceiver, IntentFilter("android.net.conn.TETHER_STATE_CHANGED"))
         worker.execute { media.prewarmIfCharging() }
+        Watchdog.schedule(app)
 
         startedAt = SystemClock.elapsedRealtime()
         running = true

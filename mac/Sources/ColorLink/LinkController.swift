@@ -18,6 +18,9 @@ final class LinkController: ObservableObject {
         didSet { if state != oldValue { AppLog.write("状态：\(self.state)") } }
     }
     @Published private(set) var discovered: [DiscoveredPhone] = []
+    /// 手机在线、但上面的 ColorLink 没在运行（端口拒绝连接超过 5 分钟）
+    @Published private(set) var phoneAppDown = false
+    private var refusedSince: Date?
     @Published private(set) var client: PhoneClient?
     @Published private(set) var device: PairedPhone?
     @Published private(set) var info: DeviceInfo?
@@ -141,6 +144,23 @@ final class LinkController: ObservableObject {
 
     // MARK: - 主循环
 
+    /// 找不到手机时看看它本身在不在：手机在线、但 ColorLink 的端口直接拒绝连接，说明手机上的 ColorLink 没在运行
+    /// （被系统停了，而且自己没恢复）。被杀后通常几分钟内会自己回来，所以持续 5 分钟以上才提示，每次只发一条通知
+    private func checkPhoneApp() async {
+        guard let ep = PairedStore.all().first?.lastEndpoint else { return }
+        guard await PortProbe.check(host: ep.host, port: ep.port) == .refused else {
+            refusedSince = nil
+            phoneAppDown = false
+            return
+        }
+        let since = refusedSince ?? Date()
+        refusedSince = since
+        guard !phoneAppDown, Date().timeIntervalSince(since) >= 5 * 60 else { return }
+        phoneAppDown = true
+        AppLog.write("手机在线，但 ColorLink 没在运行（\(ep) 拒绝连接已超过 5 分钟）")
+        Notifier.post(title: "手机上的 ColorLink 没在运行", body: "可能被系统停掉了，在手机上打开一下 ColorLink 就能恢复")
+    }
+
     private func run() async {
         var backoff = 1.0
         while !Task.isCancelled {
@@ -154,6 +174,7 @@ final class LinkController: ObservableObject {
                 if pairedIDs.isEmpty {
                     await pause(30)
                 } else {
+                    await checkPhoneApp()
                     // 配过对但暂时找不到：按退避间隔继续探测上次的地址和网关
                     await pause(backoff)
                     backoff = min(backoff * 2, 15)
@@ -178,6 +199,8 @@ final class LinkController: ObservableObject {
                 self.device = p
                 self.info = info
                 connectionID = UUID()
+                refusedSince = nil
+                phoneAppDown = false
                 state = .connected(p.name)
                 backoff = 1
                 Task { await refreshRecent() }
