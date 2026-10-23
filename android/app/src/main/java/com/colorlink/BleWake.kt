@@ -22,7 +22,8 @@ private const val TAG = "ColorLink.Ble"
  * 没用 CompanionDeviceManager：它按蓝牙地址识别设备，而 Mac 广播用的是会定期变化的随机地址。
  * 这里按服务 UUID 过滤，不受地址变化影响。
  *
- * 只在「没连着 Mac、但有 Wi-Fi 或热点」时扫描（update 决定）：连着时扫到也没用，没有局域网时扫到也连不上。
+ * 只在「没连着 Mac、且在连过 Mac 的网络里或开着热点」时扫描（update 决定，见 MacNetworks）：
+ * 连着时扫到也没用；Mac 不在的网络（咖啡店、公司）和没有局域网时，扫到也连不上。
  * 系统会把整块蓝牙芯片的耗电按扫描时长分摊给各个 App，常开扫描在电池设置里会显得 ColorLink 很耗电。
  */
 object BleWake {
@@ -39,7 +40,7 @@ object BleWake {
 
     /** 按当前状态开 / 关扫描：没连着 Mac 且有局域网时才扫。状态变化时随时调用 */
     fun update(ctx: Context) {
-        val want = EventBus.count == 0 && hasLan()
+        val want = EventBus.count == 0 && MacNetworks.shouldScan(ctx)
         if (want == scanning) return
         if (want) register(ctx) else unregister(ctx)
     }
@@ -49,7 +50,7 @@ object BleWake {
         try {
             scanner?.stopScan(pendingIntent(ctx))
             scanning = false
-            AppLog.i(TAG, "蓝牙唤醒暂停（${if (EventBus.count > 0) "已连着 Mac" else "没有 Wi-Fi 或热点"}）")
+            AppLog.i(TAG, "蓝牙唤醒暂停（${if (EventBus.count > 0) "已连着 Mac" else "不在连过 Mac 的网络里"}）")
         } catch (e: SecurityException) {
             AppLog.w(TAG, "停止蓝牙扫描失败", e)
         }

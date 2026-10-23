@@ -101,6 +101,7 @@ object LinkCore {
                 }
                 lastSubscribers = n
                 LinkService.refresh(app)
+                if (n > 0) MacNetworks.remember(app)
                 BleWake.update(app)
             }
         }

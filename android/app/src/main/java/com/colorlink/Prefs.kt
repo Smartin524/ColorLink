@@ -9,7 +9,7 @@ object Prefs {
     private const val NAME = "colorlink"
     private val random = SecureRandom()
 
-    private fun sp(ctx: Context) = ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+    fun sp(ctx: Context) = ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE)
 
     private fun getOrCreate(ctx: Context, key: String, create: () -> String): String {
         val p = sp(ctx)
