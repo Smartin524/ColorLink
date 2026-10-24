@@ -83,16 +83,21 @@ object Knock {
 fun isCellular(ifName: String) = ifName.startsWith("rmnet") || ifName.startsWith("ccmni") ||
     ifName.startsWith("v4-") || ifName.startsWith("dummy") || ifName.startsWith("tun")
 
-/** 手机所有局域网 IPv4 地址（Wi-Fi、热点），设置页和通知里显示用。 */
-/** 有没有可能找到 Mac 的局域网（Wi-Fi 或热点）。VPN 隧道不算 */
+/**
+ * 能放下别的设备的局域网网卡（Wi-Fi、热点）：有一个网段（前缀 8~30 位）的 IPv4 地址，不是流量和 VPN。
+ * 按网段判断而不只看名字：ColorOS 有个 vgate0 之类的 /32 内部网卡，名字认不全，但它不是局域网。
+ */
+fun isLan(nif: NetworkInterface): Boolean =
+    nif.isUp && !nif.isLoopback && !isCellular(nif.name) &&
+        !nif.name.startsWith("ppp") && !nif.name.startsWith("ipsec") &&
+        nif.interfaceAddresses.any { it.address is Inet4Address && it.networkPrefixLength in 8..30 }
+
+/** 有没有可能找到 Mac 的局域网（Wi-Fi 或热点） */
 fun hasLan(): Boolean = runCatching {
-    NetworkInterface.getNetworkInterfaces().toList().any { nif ->
-        nif.isUp && !nif.isLoopback && !isCellular(nif.name) &&
-            !nif.name.startsWith("tun") && !nif.name.startsWith("ppp") && !nif.name.startsWith("ipsec") &&
-            nif.inetAddresses.toList().any { it is Inet4Address }
-    }
+    NetworkInterface.getNetworkInterfaces().toList().any(::isLan)
 }.getOrDefault(true)
 
+/** 手机所有局域网 IPv4 地址（Wi-Fi、热点），设置页和通知里显示用。 */
 fun lanIpv4s(): List<String> = runCatching {
     NetworkInterface.getNetworkInterfaces().toList()
         .filter { it.isUp && !it.isLoopback && !isCellular(it.name) }

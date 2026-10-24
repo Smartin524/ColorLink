@@ -59,13 +59,9 @@ object MacNetworks {
 
     private fun known(ctx: Context): Set<String> = Prefs.sp(ctx).getStringSet(KEY, emptySet()).orEmpty()
 
-    /** 除了连着的 Wi-Fi 之外还有局域网网卡（有 IPv4、不是流量和 VPN），就是手机在开热点 */
+    /** 除了连着的 Wi-Fi 之外还有局域网网卡，就是手机在开热点 */
     private fun hotspotOn(wifiIfaces: Set<String>): Boolean = runCatching {
-        NetworkInterface.getNetworkInterfaces().toList().any { nif ->
-            nif.isUp && !nif.isLoopback && !isCellular(nif.name) && nif.name !in wifiIfaces &&
-                !nif.name.startsWith("tun") && !nif.name.startsWith("ppp") && !nif.name.startsWith("ipsec") &&
-                nif.inetAddresses.toList().any { it is Inet4Address }
-        }
+        NetworkInterface.getNetworkInterfaces().toList().any { isLan(it) && it.name !in wifiIfaces }
     }.getOrDefault(false)
 
     private fun toInt(a: InetAddress) = a.address.fold(0) { acc, b -> (acc shl 8) or (b.toInt() and 0xFF) }
