@@ -153,9 +153,10 @@ write(render(px: 1024, background: roundedBackground(top: 0xFFFFFF, bottom: 0xF1
 write(render(px: 1024, background: roundedBackground(top: 0x383839, bottom: 0x121213), logoScale: 0.86),
       "design/icon/ColorLink-暗色-1024.png")
 
-// 安卓自适应图标前景：108dp 画布，桌面只露出中间约 72dp；链环占可见区域约 62%（≈ 108dp 的 42%），和 Mac 图标留白一致
+// 安卓自适应图标前景：108dp 画布，桌面只露出中间约 72dp。链环外框占画布约 50%、可见区域约 74%，
+// 和系统图标的图形一样饱满；斜着的两端刚好落在 66dp 的圆形安全区以内，圆形遮罩的桌面也不会削到
 let densities = ["mdpi": 108, "hdpi": 162, "xhdpi": 216, "xxhdpi": 324, "xxxhdpi": 432]
 for (name, px) in densities {
-    write(render(px: px, background: nil, logoScale: 0.42 / Logo.extent),
+    write(render(px: px, background: nil, logoScale: 0.56 / Logo.extent),
           "android/app/src/main/res/drawable-\(name)/ic_launcher_foreground.png")
 }
