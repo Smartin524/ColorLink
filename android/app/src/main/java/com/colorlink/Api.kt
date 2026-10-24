@@ -31,7 +31,10 @@ class Api(
         if (req.path == "/api/id") return Response.json(JSONObject().put("deviceId", Prefs.deviceId(ctx)).put("name", deviceName()))
         if (!authorized(req)) return Response.text(401, "unauthorized")
         return when (req.path) {
-            "/api/info" -> Response.json(info())
+            "/api/info" -> {
+                EventBus.ping()
+                Response.json(info())
+            }
             "/api/media" -> {
                 val kind = MediaRepo.Kind.of(req.q("kind")) ?: return Response.text(400, "bad kind")
                 val offset = req.q("offset")?.toIntOrNull()?.coerceAtLeast(0) ?: 0

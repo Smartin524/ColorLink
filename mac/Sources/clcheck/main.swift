@@ -4,7 +4,7 @@
 //   swift run clcheck --host 127.0.0.1 --code 123456
 //
 // 加 --trigger 会让模拟手机“截一张图”，验证截图 → 剪贴板这条链路。
-// 加 --doze（模拟手机也要加 --doze）验证手机深睡、ping 停发时事件流不会被误判断线，约 2 分半。
+// 加 --doze（模拟手机也要加 --doze）验证手机深睡、ping 停发时事件流不会被误判断线，约 5 分钟。
 
 import AppKit
 import Foundation
@@ -240,19 +240,19 @@ guard case .hello? = try await iterator.next() else { fail("没收到 hello") }
 ok("收到 hello")
 
 if doze {
-    // 模拟手机不发 ping；事件流应在安静 45 秒后问一下手机，把它“叫醒”，之后照常收到 ping
+    // 模拟手机不发 ping；事件流应在安静 3 分钟后问一下手机，手机当场回 ping，连接保持
     let stream = client.events()
     let broke = await withTaskGroup(of: String?.self) { g in
         g.addTask {
             do { for try await _ in stream {} ; return "连接被关闭" } catch { return "\(error)" }
         }
-        g.addTask { try? await Task.sleep(for: .seconds(150)); return nil }
+        g.addTask { try? await Task.sleep(for: .seconds(300)); return nil }
         let first = await g.next() ?? nil
         g.cancelAll()
         return first
     }
     if let broke { fail("手机深睡时事件流断了：\(broke)") }
-    ok("手机深睡 150 秒，事件流没有断")
+    ok("手机深睡 5 分钟，事件流没有断")
 }
 
 if trigger {

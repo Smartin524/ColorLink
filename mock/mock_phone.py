@@ -185,6 +185,14 @@ class EventBus:
                 self.subs.remove(q)
         print(f"[mock] Mac 断开事件流（剩 {len(self.subs)} 个）", flush=True)
 
+    def ping(self):
+        with self.lock:
+            for q in self.subs:
+                try:
+                    q.put_nowait(": ping\n\n")
+                except queue.Full:
+                    pass
+
     def publish(self, event, data):
         msg = f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, separators=(',', ':'))}\n\n"
         with self.lock:
@@ -198,7 +206,6 @@ class EventBus:
 class State:
     def __init__(self, code, library, data_dir):
         self.code = code
-        self.last_request = time.time()
         # 和真手机一样持久保存令牌，否则模拟器一重启，Mac 就会当作被取消配对
         token_file = os.path.join(data_dir, "token")
         if os.path.exists(token_file):
@@ -233,8 +240,6 @@ class Handler(BaseHTTPRequestHandler):
             super().log_message(fmt, *args)
 
     def do_GET(self):
-        if not self.path.startswith("/api/events"):
-            STATE.last_request = time.time()
         self.route(head=False)
 
     def do_HEAD(self):
@@ -295,6 +300,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_text(401, "unauthorized")
 
         if path == "/api/info":
+            STATE.bus.ping()
             return self.send_json(STATE.info())
         if path == "/api/media":
             kind = q.get("kind")
@@ -416,11 +422,9 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.flush()
             while True:
                 try:
-                    msg = q.get(timeout=20)
+                    # 模拟手机深睡：CPU 停着，20 秒的 ping 计时不走，只有事件（包括 /api/info 推的 ping）才会写出
+                    msg = q.get(timeout=None if DOZE else 20)
                 except queue.Empty:
-                    # 模拟手机深睡：CPU 停着，ping 发不出去，直到有别的请求进来把它叫醒
-                    while DOZE and STATE.last_request < time.time() - 20:
-                        time.sleep(0.5)
                     msg = ": ping\n\n"
                 self.wfile.write(msg.encode())
                 self.wfile.flush()
@@ -520,7 +524,7 @@ def main():
     ap.add_argument("--no-prewarm", action="store_true", help="不预生成缩略图（用来测冷启动）")
     ap.add_argument("--name", help="手机名称（录演示视频时用真实型号）")
     ap.add_argument("--battery", type=int, help="固定电量（默认随机）")
-    ap.add_argument("--doze", action="store_true", help="模拟手机深睡：没有别的请求时事件流不发 ping")
+    ap.add_argument("--doze", action="store_true", help="模拟手机深睡：事件流不发定时 ping，只在收到 /api/info 时回一行")
     args = ap.parse_args()
     global DEVICE_NAME, BATTERY, DOZE
     if args.name:

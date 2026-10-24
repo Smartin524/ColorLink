@@ -221,9 +221,10 @@ public final class PhoneClient: @unchecked Sendable {
 
     /// 订阅手机事件（SSE）。连接断开时以错误结束，由调用方负责重连。
     ///
-    /// 手机每 20 秒发一次 ping，但手机深睡时 CPU 停着，ping 会停上几分钟，连接其实还在。
-    /// 所以流里安静超过 45 秒时，另开一个请求问一下手机：请求本身会把手机叫醒，
-    /// 答上了就继续等（醒来后 ping 马上会到）；答不上、或答上了流里仍然没有动静，才判定断线。
+    /// 手机每 20 秒发一次 ping，但手机深睡时 CPU 停着，ping 会停上很久，连接其实还在。
+    /// 所以流里安静超过 3 分钟时，另开一个请求问一下手机：请求会把手机叫醒，手机当场往流里回一行 ping。
+    /// 答不上、或答上了流里仍然没有动静，才判定断线。问得太勤会整夜把手机叫醒，所以宁可晚几分钟发现；
+    /// 手机进程退出时连接会立刻断，换了网络手机会敲门，都不靠这里。
     public func events() -> AsyncThrowingStream<PhoneEvent, Error> {
         let req = request(url("api/events", ["name": clientName]))
         let session = eventSession
@@ -258,8 +259,8 @@ public final class PhoneClient: @unchecked Sendable {
                     try? await Task.sleep(for: .seconds(15))
                     guard let self, !Task.isCancelled else { return }
                     let idle = Date().timeIntervalSince(lastActivity.last)
-                    if idle < 45 { probedAt = nil; continue }
-                    if let probedAt, Date().timeIntervalSince(probedAt) > 60 {
+                    if idle < 180 { probedAt = nil; continue }
+                    if let probedAt, Date().timeIntervalSince(probedAt) > 30 {
                         // 手机答得上，事件流却一直没动静：流已经断了（比如手机进程重启过）
                         continuation.finish(throwing: URLError(.timedOut))
                         return
