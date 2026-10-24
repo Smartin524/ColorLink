@@ -12,7 +12,7 @@
 ColorLink/
 ├── PROTOCOL.md     手机 ↔ Mac 通信协议
 ├── design/icon/    图标设计稿（日间 / 暗色 1024）和预览
-├── tools/          make-icons.swift 绘制图标并生成安卓资源；make-mac-icon.swift 生成 AppIcon.icns
+├── tools/          make-icons.swift 绘制图标，生成安卓资源和 Mac 图标的链环图层
 ├── android/        手机端（Kotlin，无第三方依赖）
 ├── mac/            Mac 状态栏 App（AppKit + SwiftUI）+ 命令行联调工具 clcheck
 └── mock/           模拟手机（Python 标准库），没有手机时调试 Mac 端用
@@ -163,7 +163,7 @@ adb logcat -s ColorLink.Core ColorLink.Service ColorLink.Notify ColorLink.Http C
 - **蓝牙唤醒**：用系统托管的 PendingIntent 扫描，按服务 UUID 过滤，不受 Mac 蓝牙地址轮换的影响。ColorOS 会不会限制它还要实测；不过空闲保活现在靠通知监听，蓝牙只是额外的唤醒途径。
 - **流体云**：用的是 Android 16 标准的实况通知（`setRequestPromotedOngoing` + `ProgressStyle`），ColorOS 上的具体样子由系统决定，胶囊里不一定能完全做到“左 Mac 右绿灯”。这些接口在 API 36.1 才有，当前的 Gradle 插件不认 `android-37.0`，所以用反射调用；以后升级 AGP 就可以直接调用。
 - **状态栏图标被刘海挡住**：状态栏图标多的时候，新图标会落在刘海左侧，被当前 App 的菜单挡住。按住 ⌘ 把 ColorLink 图标拖到右边，或者用菜单栏管理工具把它放进常显区。拖文件时面板照样会弹出来，位置在图标原本的地方附近。
-- **重新生成图标**：图标（链环）由 `tools/make-icons.swift` 用代码绘制。改完造型后依次运行 `swift tools/make-icons.swift` 和 `swift tools/make-mac-icon.swift design/icon/ColorLink-日间-1024.png mac/Resources/AppIcon.icns`；状态栏和通知栏的单色版几何分别在 `BrandIcon.swift`、`ic_link.xml`，需要同步修改。
+- **重新生成图标**：图标（链环）由 `tools/make-icons.swift` 用代码绘制。改完造型后运行 `swift tools/make-icons.swift`。Mac 图标是 Icon Composer 格式（`mac/Resources/AppIcon.icon`，日间 / 暗色底色在 `icon.json`），`build-app.sh` 用 Xcode 的 actool 编译，所以打包需要装 Xcode；状态栏和通知栏的单色版几何分别在 `BrandIcon.swift`、`ic_link.xml`，需要同步修改。
 - **令牌**存在 Mac 的 UserDefaults 里，正式版应改存钥匙串。局域网传输目前是明文 HTTP，以后可以在配对时交换证书，改成 HTTPS。
 - **全盘文件浏览**（`MANAGE_EXTERNAL_STORAGE`）还没做，现在只能浏览照片、视频和录音。
 - 接入 Finder 侧边栏（File Provider 扩展）、从「最近照片」直接拖出到别的 App，都还没做。

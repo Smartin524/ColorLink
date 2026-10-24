@@ -4,7 +4,7 @@
 //
 // 生成：
 //   design/icon/ColorLink-日间-1024.png、ColorLink-暗色-1024.png   预览 / 设计稿
-//   mac/Resources/AppIcon.icns                                     由日间版经 make-mac-icon.swift 生成
+//   mac/Resources/AppIcon.icon/Assets/Link.png                     macOS 图标的链环图层（底色在 icon.json）
 //   android/app/src/main/res/drawable-*dpi/ic_launcher_foreground.png  自适应图标前景（透明）
 //
 // 造型参数都在 Logo 里，Mac 状态栏（BrandIcon.swift）、通知栏（ic_link.xml）和手机首页动画（LinkLogoView.kt）用的是同一组几何。
@@ -152,6 +152,10 @@ write(render(px: 1024, background: roundedBackground(top: 0xFFFFFF, bottom: 0xF1
       "design/icon/ColorLink-日间-1024.png")
 write(render(px: 1024, background: roundedBackground(top: 0x383839, bottom: 0x121213), logoScale: 0.86),
       "design/icon/ColorLink-暗色-1024.png")
+
+// macOS 26 图标（Icon Composer 格式，build-app.sh 用 actool 编译）的链环图层：透明底，链环外框占 1024 画布约 68%。
+// 底色在 AppIcon.icon/icon.json 里按日间 / 暗色分别设置，系统据此切换，也能自动生成「着色」「透明」样式
+write(render(px: 1024, background: nil, logoScale: 0.77 / Logo.extent), "mac/Resources/AppIcon.icon/Assets/Link.png")
 
 // 安卓自适应图标前景：108dp 画布，桌面只露出中间约 72dp。链环外框占画布约 50%、可见区域约 74%，
 // 和系统图标的图形一样饱满；斜着的两端刚好落在 66dp 的圆形安全区以内，圆形遮罩的桌面也不会削到
