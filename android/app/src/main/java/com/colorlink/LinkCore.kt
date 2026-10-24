@@ -40,6 +40,8 @@ object LinkCore {
 
     /** Mac 刚连上时的“播报窗口”：流体云弹一下就收（像一次性通知），不常驻。 */
     private const val ANNOUNCE_MS = 2_500L
+    private const val RECONNECT_QUIET_MS = 60_000L
+    private var disconnectedAt = -RECONNECT_QUIET_MS
 
     @Volatile
     private var announceUntil = 0L
@@ -94,11 +96,14 @@ object LinkCore {
         EventBus.onSubscribersChanged = { n ->
             AppLog.i(TAG, if (n > 0) "Mac 已连接（${macName ?: "?"}，共 $n 个连接）" else "Mac 已断开")
             handler.post {
-                if (lastSubscribers == 0 && n > 0) {
-                    // 从没连接到连上：弹一下流体云，到时间自动收起
-                    announceUntil = SystemClock.elapsedRealtime() + ANNOUNCE_MS
+                val now = SystemClock.elapsedRealtime()
+                // 从没连接到连上：弹一下流体云，到时间自动收起。
+                // 刚断开不到 1 分钟又连上的（网络抖一下、Mac 重连）不算新连接，不弹
+                if (lastSubscribers == 0 && n > 0 && now - disconnectedAt > RECONNECT_QUIET_MS) {
+                    announceUntil = now + ANNOUNCE_MS
                     handler.postDelayed({ LinkService.refresh(app) }, ANNOUNCE_MS + 100)
                 }
+                if (lastSubscribers > 0 && n == 0) disconnectedAt = now
                 lastSubscribers = n
                 LinkService.refresh(app)
                 if (n > 0) MacNetworks.remember(app)

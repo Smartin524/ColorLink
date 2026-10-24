@@ -4,6 +4,7 @@
 //   swift run clcheck --host 127.0.0.1 --code 123456
 //
 // 加 --trigger 会让模拟手机“截一张图”，验证截图 → 剪贴板这条链路。
+// 加 --doze（模拟手机也要加 --doze）验证手机深睡、ping 停发时事件流不会被误判断线，约 2 分半。
 
 import AppKit
 import Foundation
@@ -27,6 +28,7 @@ func ms(since t: Date) -> String { String(format: "%.0f ms", Date().timeInterval
 
 let code = arg("--code") ?? "123456"
 let trigger = CommandLine.arguments.contains("--trigger")
+let doze = CommandLine.arguments.contains("--doze")
 
 // ① 发现
 var endpoint: PhoneEndpoint
@@ -236,6 +238,22 @@ let events = client.events()
 var iterator = events.makeAsyncIterator()
 guard case .hello? = try await iterator.next() else { fail("没收到 hello") }
 ok("收到 hello")
+
+if doze {
+    // 模拟手机不发 ping；事件流应在安静 45 秒后问一下手机，把它“叫醒”，之后照常收到 ping
+    let stream = client.events()
+    let broke = await withTaskGroup(of: String?.self) { g in
+        g.addTask {
+            do { for try await _ in stream {} ; return "连接被关闭" } catch { return "\(error)" }
+        }
+        g.addTask { try? await Task.sleep(for: .seconds(150)); return nil }
+        let first = await g.next() ?? nil
+        g.cancelAll()
+        return first
+    }
+    if let broke { fail("手机深睡时事件流断了：\(broke)") }
+    ok("手机深睡 150 秒，事件流没有断")
+}
 
 if trigger {
     // 模拟手机的调试接口只接受本机请求，所以固定走 127.0.0.1

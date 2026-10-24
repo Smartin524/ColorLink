@@ -51,7 +51,8 @@ public final class PhoneClient: @unchecked Sendable {
         session = URLSession(configuration: cfg)
 
         let ev = URLSessionConfiguration.ephemeral
-        ev.timeoutIntervalForRequest = 90 // 手机每 20 秒发一次 ping，90 秒没动静就判定断线
+        // 断线由 events() 自己判断：手机深睡时 ping 会停，单靠超时会反复误判断线
+        ev.timeoutIntervalForRequest = 7 * 24 * 3600
         ev.timeoutIntervalForResource = 7 * 24 * 3600
         eventSession = URLSession(configuration: ev)
     }
@@ -219,9 +220,14 @@ public final class PhoneClient: @unchecked Sendable {
     // MARK: - 事件流
 
     /// 订阅手机事件（SSE）。连接断开时以错误结束，由调用方负责重连。
+    ///
+    /// 手机每 20 秒发一次 ping，但手机深睡时 CPU 停着，ping 会停上几分钟，连接其实还在。
+    /// 所以流里安静超过 45 秒时，另开一个请求问一下手机：请求本身会把手机叫醒，
+    /// 答上了就继续等（醒来后 ping 马上会到）；答不上、或答上了流里仍然没有动静，才判定断线。
     public func events() -> AsyncThrowingStream<PhoneEvent, Error> {
         let req = request(url("api/events", ["name": clientName]))
         let session = eventSession
+        let lastActivity = ActivityClock()
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -229,6 +235,7 @@ public final class PhoneClient: @unchecked Sendable {
                     try Self.check(resp)
                     var name = "message"
                     for try await line in bytes.lines {
+                        lastActivity.touch()
                         if line.hasPrefix(":") { continue } // ping
                         if line.hasPrefix("event:") {
                             name = line.dropFirst(6).trimmingCharacters(in: .whitespaces)
@@ -245,7 +252,32 @@ public final class PhoneClient: @unchecked Sendable {
                     continuation.finish(throwing: error)
                 }
             }
-            continuation.onTermination = { _ in task.cancel() }
+            let watchdog = Task { [weak self] in
+                var probedAt: Date?
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(15))
+                    guard let self, !Task.isCancelled else { return }
+                    let idle = Date().timeIntervalSince(lastActivity.last)
+                    if idle < 45 { probedAt = nil; continue }
+                    if let probedAt, Date().timeIntervalSince(probedAt) > 60 {
+                        // 手机答得上，事件流却一直没动静：流已经断了（比如手机进程重启过）
+                        continuation.finish(throwing: URLError(.timedOut))
+                        return
+                    }
+                    guard probedAt == nil else { continue }
+                    do {
+                        _ = try await self.info(timeout: 10)
+                        probedAt = Date()
+                    } catch {
+                        continuation.finish(throwing: URLError(.timedOut))
+                        return
+                    }
+                }
+            }
+            continuation.onTermination = { _ in
+                task.cancel()
+                watchdog.cancel()
+            }
         }
     }
 
@@ -271,4 +303,12 @@ public final class PhoneClient: @unchecked Sendable {
         }
         return .unknown(name)
     }
+}
+
+/// 事件流最后一次收到数据的时间，读流的任务和看门的任务共用
+private final class ActivityClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = Date()
+    var last: Date { lock.withLock { value } }
+    func touch() { lock.withLock { value = Date() } }
 }
