@@ -157,10 +157,10 @@ write(render(px: 1024, background: roundedBackground(top: 0x383839, bottom: 0x12
 // 底色在 AppIcon.icon/icon.json 里只设日间的；暗色、着色、透明样式由系统自动生成（暗色是 Icon Composer 默认的黑底）
 write(render(px: 1024, background: nil, logoScale: 0.77 / Logo.extent), "mac/Resources/AppIcon.icon/Assets/Link.png")
 
-// 安卓自适应图标前景：108dp 画布，桌面只露出中间约 72dp。链环外框占画布约 50%、可见区域约 74%，
-// 和系统图标的图形一样饱满；斜着的两端刚好落在 66dp 的圆形安全区以内，圆形遮罩的桌面也不会削到
+// 安卓自适应图标前景：108dp 画布，桌面只露出中间约 72dp。链环外框占画布约 46%、可见区域约 69%，
+// 和系统图标的图形一样饱满；斜着的两端落在 66dp 的圆形安全区以内，圆形遮罩的桌面也不会削到
 let densities = ["mdpi": 108, "hdpi": 162, "xhdpi": 216, "xxhdpi": 324, "xxxhdpi": 432]
 for (name, px) in densities {
-    write(render(px: px, background: nil, logoScale: 0.56 / Logo.extent),
+    write(render(px: px, background: nil, logoScale: 0.52 / Logo.extent),
           "android/app/src/main/res/drawable-\(name)/ic_launcher_foreground.png")
 }
