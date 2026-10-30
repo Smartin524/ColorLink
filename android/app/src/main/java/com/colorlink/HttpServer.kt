@@ -121,7 +121,7 @@ class HttpServer(private val handler: (Request) -> Response) {
                     // 读掉没用完的请求体，保证 keep-alive 下一个请求能对齐
                     (req.body as BoundedInputStream).drain()
                     val reusable = try {
-                        write(output, req, resp)
+                        write(input, output, req, resp)
                     } finally {
                         resp.onDone?.invoke()
                     }
@@ -183,7 +183,7 @@ class HttpServer(private val handler: (Request) -> Response) {
         }
 
     /** 返回 true 表示连接可以复用。 */
-    private fun write(out: OutputStream, req: Request, resp: Response): Boolean {
+    private fun write(input: InputStream, out: OutputStream, req: Request, resp: Response): Boolean {
         val body = resp.body
         val length: Long? = when (body) {
             is Response.Body.Bytes -> body.data.size.toLong()
@@ -206,12 +206,42 @@ class HttpServer(private val handler: (Request) -> Response) {
                 is Response.Body.Stream -> body.input.use { copy(it, out, body.length) }
                 is Response.Body.Streaming -> {
                     out.flush()
-                    body.writer(out)
+                    watchPeer(input) { body.writer(out) }
                 }
             }
         }
         out.flush()
         return keepAlive
+    }
+
+    /**
+     * 长连接（SSE）期间没人读请求方向，对端关闭只能等到下一次写才发现（ping 最长 20 秒）。
+     * 起一个线程盯着读到 -1 / 出错，立刻打断写线程（它多半正等在事件队列上），
+     * Mac 锁屏主动断开时手机就能马上退掉前台服务。写线程结束后不再打断，免得误伤线程池里接下来的请求
+     */
+    private fun watchPeer(input: InputStream, block: () -> Unit) {
+        val writer = Thread.currentThread()
+        val lock = Any()
+        var done = false
+        val watcher = thread(name = "http-peer-watch", isDaemon = true) {
+            while (true) {
+                try {
+                    if (input.read() < 0) break
+                } catch (_: SocketTimeoutException) {
+                    continue // 读超时只是没数据，不算断开
+                } catch (_: IOException) {
+                    break
+                }
+            }
+            synchronized(lock) { if (!done) writer.interrupt() }
+        }
+        try {
+            block()
+        } finally {
+            synchronized(lock) { done = true }
+            Thread.interrupted() // 清掉可能刚打上的中断标记
+            // 盯梢线程卡在 socket 读上，中断打不断它；连接关闭时读会出错，它自己结束
+        }
     }
 
     private fun copy(input: InputStream, out: OutputStream, length: Long) {

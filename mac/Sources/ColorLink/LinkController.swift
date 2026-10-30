@@ -12,6 +12,8 @@ final class LinkController: ObservableObject {
         case connecting(String)
         case connected(String)
         case retrying(String, String)
+        /// Mac 锁屏或睡眠中，主动断开，解锁后再连
+        case paused
     }
 
     @Published private(set) var state: State = .searching {
@@ -69,6 +71,10 @@ final class LinkController: ObservableObject {
     /// 当前事件流；收到敲门判定为假连接时取消它
     private var streamTask: Task<Void, Error>?
     private var wakeCounter = 0
+    /// Mac 锁屏 / 睡眠时不连手机：没人用，手机却要一直挂着连接和前台服务。两个标志任一为真就暂停
+    private var asleep = false
+    private var locked = false
+    @Published private(set) var paused = false
 
     nonisolated static let demo = CommandLine.arguments.contains("--demo")
 
@@ -115,11 +121,21 @@ final class LinkController: ObservableObject {
         }
         if !Self.demo { Notifier.setUp() }
 
-        // Mac 从睡眠中醒来时立刻重试，不等退避计时
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.wake() }
+        // 睡眠前主动断开（否则手机要等 TCP 重传放弃、十几分钟后才知道 Mac 走了）；醒来后看锁屏状态决定要不要连
+        let ws = NSWorkspace.shared.notificationCenter
+        ws.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.setAsleep(true) }
+        }
+        ws.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.setAsleep(false) }
+        }
+        // 锁屏 / 解锁没有公开 API，这两条分布式通知是系统一直在发的
+        let dnc = DistributedNotificationCenter.default()
+        dnc.addObserver(forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.setLocked(true) }
+        }
+        dnc.addObserver(forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.setLocked(false) }
         }
 
         loop = Task { await run() }
@@ -128,6 +144,37 @@ final class LinkController: ObservableObject {
     /// 发现变化、配对完成、Mac 唤醒时调用，打断正在进行的等待。
     func wake() {
         wakeCounter += 1
+    }
+
+    // MARK: - 锁屏 / 睡眠
+
+    private func setAsleep(_ v: Bool) {
+        asleep = v
+        updatePaused()
+    }
+
+    private func setLocked(_ v: Bool) {
+        locked = v
+        updatePaused()
+    }
+
+    /// 暂停：断开事件流（手机那边立刻收到关闭，前台服务退掉、蓝牙扫描恢复），停掉蓝牙广播免得手机白白敲门。
+    /// 恢复：醒来时锁屏通知可能晚一拍才到，等 1 秒再连，免得连上又断
+    private func updatePaused() {
+        let p = asleep || locked
+        guard p != paused else { return }
+        paused = p
+        AppLog.write(p ? "Mac \(asleep ? "睡眠" : "锁屏")，断开手机" : "Mac 已解锁，恢复连接")
+        beacon.set(advertising: !p)
+        if p {
+            streamTask?.cancel()
+            wake()
+        } else {
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                if !paused { wake() }
+            }
+        }
     }
 
     // MARK: - 配对
@@ -172,6 +219,12 @@ final class LinkController: ObservableObject {
     private func run() async {
         var backoff = 1.0
         while !Task.isCancelled {
+            if paused {
+                state = .paused
+                await pause(3600) // 解锁 / 醒来时 wake() 会提前结束
+                backoff = 1
+                continue
+            }
             guard let (paired, endpoint) = await target() else {
                 let pairedIDs = Set(PairedStore.all().map(\.deviceId))
                 if let unpaired = discovered.first(where: { !pairedIDs.contains($0.deviceId ?? "") }) {
@@ -229,8 +282,11 @@ final class LinkController: ObservableObject {
                 PairedStore.remove(paired.deviceId)
                 lastEvent = "手机已取消配对，请重新配对"
             } catch {
-                lastEvent = error.localizedDescription
-                AppLog.write("连接 \(endpoint) 失败：\(error)")
+                // 锁屏 / 睡眠时是自己取消的，不算失败
+                if !paused {
+                    lastEvent = error.localizedDescription
+                    AppLog.write("连接 \(endpoint) 失败：\(error)")
+                }
             }
 
             syncTask?.cancel()

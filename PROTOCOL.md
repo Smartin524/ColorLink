@@ -79,3 +79,4 @@ ColorOS 锁屏后，Wi-Fi 芯片会过滤组播包，手机收不到 Mac 发来�
 
 - 手机只在**传输类**请求（`/api/media`、`/api/thumb`、`/api/file`、`/api/upload`、`/api/shared`）期间持有 Wi-Fi 锁和唤醒锁，响应写完 3 秒后释放；`/api/info`、`/api/id`、`/api/events` 不持锁
 - Mac 不定时询问手机：电量、充电状态靠 `hello` 和 `power` 事件；只有打开状态栏面板时问一次 `/api/info`，以及事件流安静超过 3 分钟时的探活
+- Mac 锁屏或睡眠时主动关闭事件流并停掉蓝牙广播，解锁 / 醒来后再连。手机在事件流上盯着对端关闭，关闭即断开，不等下一次 ping

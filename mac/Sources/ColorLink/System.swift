@@ -121,14 +121,30 @@ final class BLEBeacon: NSObject, CBPeripheralManagerDelegate {
     static let serviceUUID = CBUUID(string: "7A1C3F0E-5B2D-4E8A-9C61-3D4F2B8E9A10")
 
     private var manager: CBPeripheralManager?
+    /// 想不想广播：Mac 锁屏 / 睡眠时不广播，手机扫到了也不该来连
+    private var wanted = true
 
     func start() {
         manager = CBPeripheralManager(delegate: self, queue: nil)
     }
 
+    func set(advertising on: Bool) {
+        wanted = on
+        guard let m = manager, m.state == .poweredOn else { return }
+        if on {
+            if !m.isAdvertising { advertise(m) }
+        } else {
+            m.stopAdvertising()
+        }
+    }
+
     func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
-        guard peripheral.state == .poweredOn else { return }
-        peripheral.startAdvertising([
+        guard peripheral.state == .poweredOn, wanted else { return }
+        advertise(peripheral)
+    }
+
+    private func advertise(_ m: CBPeripheralManager) {
+        m.startAdvertising([
             CBAdvertisementDataServiceUUIDsKey: [Self.serviceUUID],
             CBAdvertisementDataLocalNameKey: "ColorLink",
         ])

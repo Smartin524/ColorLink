@@ -160,6 +160,7 @@ struct PanelView: View {
         case .connecting(let n): "正在连接「\(n)」"
         case .connected(let n): n
         case .retrying(let n, _): "「\(n)」已断开"
+        case .paused: "未连接"
         }
     }
 
@@ -173,6 +174,7 @@ struct PanelView: View {
             guard let i = link.info, let b = i.battery else { return "已连接" }
             return "已连接 · \(b)%\(i.charging == true ? " · 充电中" : "")"
         case .retrying: return "自动重连中…"
+        case .paused: return "锁屏时暂停连接"
         }
     }
 }
