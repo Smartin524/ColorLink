@@ -12,6 +12,7 @@
   curl -X POST 'localhost:8765/debug/clipboard?text=hello'
   curl -X POST localhost:8765/debug/knock
   curl -X POST 'localhost:8765/debug/power?charging=1'   # 模拟插上电源（0 = 拔掉）
+  curl -X POST 'localhost:8765/debug/dnd?mode=priority'  # 模拟手机上手动改免打扰（all/priority/alarms/none）
 
 模拟“锁屏后 mDNS 收不到”：加 --no-mdns，此时 Mac 只能靠敲门或上次的地址找到手机。
 
@@ -224,10 +225,11 @@ class State:
         self.mac_name = "Mac"
         self.port = 8765
         self.charging = False
+        self.dnd = "all"
 
     def info(self):
         return {"deviceId": DEVICE_ID, "name": DEVICE_NAME, "model": "PHZ110", "android": "15",
-                "battery": BATTERY or random.randint(40, 95), "charging": self.charging}
+                "battery": BATTERY or random.randint(40, 95), "charging": self.charging, "dnd": self.dnd}
 
 
 STATE = None
@@ -324,6 +326,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.events()
         if path == "/api/upload":
             return self.upload(q)
+        if path == "/api/dnd":
+            if self.command == "POST":
+                mode = q.get("mode")
+                if mode not in ("all", "priority", "alarms", "none"):
+                    return self.send_text(400, "bad mode")
+                STATE.dnd = mode
+                # 真手机是系统改完再回调；这里直接推事件
+                STATE.bus.publish("dnd", {"mode": mode})
+                print(f"[mock] Mac 把免打扰改为 {mode}", flush=True)
+            return self.send_json({"mode": STATE.dnd})
         return self.send_text(404, "not found")
 
     def pair(self, q):
@@ -444,9 +456,11 @@ class Handler(BaseHTTPRequestHandler):
             print(f"[mock] 模拟截图 {item['name']}，已推送", flush=True)
             return self.send_json(item)
         if path == "/debug/notify":
-            # 和手机一样只模拟短信；默认是一条验证码短信
+            # 默认是一条验证码短信；?pkg=com.xxx&app=xxx 可以模拟别的 App 的通知（那时 Mac 不找验证码）
             code = f"{random.randint(0, 999999):06d}"
-            n = {"key": secrets.token_hex(4), "pkg": "com.android.mms", "app": q.get("app", "信息"),
+            pkg = q.get("pkg", "com.android.mms")
+            n = {"key": secrets.token_hex(4), "pkg": pkg, "app": q.get("app", "信息"),
+                 "sms": pkg == "com.android.mms",
                  "title": q.get("title", "106905993"),
                  "text": q.get("text", f"【ColorLink】您的验证码为 {code}，5分钟内有效，请勿泄露。"),
                  "time": int(time.time() * 1000)}
@@ -457,6 +471,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/debug/clipboard":
             STATE.bus.publish("clipboard", {"text": q.get("text", "")})
             return self.send_json({"ok": True})
+        if path == "/debug/dnd":
+            STATE.dnd = q.get("mode", "priority")
+            STATE.bus.publish("dnd", {"mode": STATE.dnd})
+            return self.send_json({"mode": STATE.dnd})
         if path == "/debug/power":
             # 模拟插拔电源：?charging=1 插上，?charging=0 拔掉。Mac 据此开始 / 停止后台补缩略图
             STATE.charging = q.get("charging", "1") == "1"

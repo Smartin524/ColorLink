@@ -52,8 +52,21 @@ class Api(
             "/api/upload" -> transfer { upload(req) }
             "/api/trash" -> trash(req)
             "/api/shared" -> transfer { shared(req) }
+            "/api/dnd" -> dnd(req)
             else -> Response.text(404, "not found")
         }
+    }
+
+    /**
+     * 免打扰：GET 查当前档位，POST ?mode=all|priority|alarms|none 改档位，都返回 {"mode"}。
+     * 没开通知使用权时改不了，返回 503。改完系统会异步回调，再以 dnd 事件通知 Mac
+     */
+    private fun dnd(req: Request): Response {
+        val current = NotifyListener.dndMode() ?: return Response.text(503, "notification access not granted")
+        if (req.method != "POST") return Response.json(JSONObject().put("mode", current))
+        val mode = req.q("mode") ?: return Response.text(400, "missing mode")
+        if (!NotifyListener.setDndMode(mode)) return Response.text(400, "bad mode")
+        return Response.json(JSONObject().put("mode", mode))
     }
 
     /** 传输期间持锁：从开始处理到响应（包括原文件的整个流）写完为止；处理出错也会放锁 */
@@ -110,6 +123,7 @@ class Api(
             .put("android", Build.VERSION.RELEASE)
             .put("battery", bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY))
             .put("charging", bm?.isCharging)
+            .put("dnd", NotifyListener.dndMode()) // null：没开通知使用权，Mac 上的免打扰按钮不可用
     }
 
     private fun thumb(req: Request): Response {

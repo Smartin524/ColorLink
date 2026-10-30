@@ -89,10 +89,30 @@ struct PanelView: View {
                     }
                     .buttonStyle(.plain)
                     .help("打开相册")
+                    dndButton
                 }
                 moreMenu
             }
         }
+    }
+
+    /// 手机免打扰：开着是实心月亮（带档位提示），关着是空心；手机没开通知使用权时变淡、不可点
+    private var dndButton: some View {
+        let mode = link.dnd
+        let on = mode?.isOn == true
+        return Button {
+            Task { await link.toggleDnd() }
+        } label: {
+            Image(systemName: on ? "moon.fill" : "moon")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(on ? Color.accentColor : .primary)
+                .frame(width: 22, height: 22)
+                .glassEffect(.regular.interactive(), in: .circle)
+        }
+        .buttonStyle(.plain)
+        .disabled(mode == nil)
+        .opacity(mode == nil ? 0.4 : 1)
+        .help(mode.map { $0.isOn ? "免打扰：\($0.title)" : "免打扰" } ?? "需要手机开通知使用权")
     }
 
     /// 「⋯」：和相册按钮同款的玻璃圆形按钮，点击弹出系统原生菜单
@@ -118,7 +138,7 @@ struct PanelView: View {
         }
         menu.autoenablesItems = false
         toggle("截图自动复制到剪贴板", link.autoCopyScreenshots) { link.autoCopyScreenshots = $0 }
-        toggle("同步短信", link.mirrorNotifications) { link.mirrorNotifications = $0 }
+        toggle("同步通知", link.mirrorNotifications) { link.mirrorNotifications = $0 }
         toggle("短信验证码自动复制", link.autoCopyCodes, enabled: link.mirrorNotifications) { link.autoCopyCodes = $0 }
         toggle("开机自启", LoginItem.enabled) { LoginItem.set($0) }
         menu.addItem(.separator())

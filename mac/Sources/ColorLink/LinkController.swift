@@ -24,6 +24,8 @@ final class LinkController: ObservableObject {
     @Published private(set) var client: PhoneClient?
     @Published private(set) var device: PairedPhone?
     @Published private(set) var info: DeviceInfo?
+    /// 手机的免打扰档位；nil：没连上，或手机没开通知使用权（按钮不可用）
+    @Published private(set) var dnd: DndMode?
     @Published private(set) var thumbs: ThumbnailCache?
     /// 手机相册在本机的完整副本
     @Published private(set) var library: MediaLibrary?
@@ -44,7 +46,7 @@ final class LinkController: ObservableObject {
     @Published var autoCopyScreenshots: Bool {
         didSet { UserDefaults.standard.set(autoCopyScreenshots, forKey: "autoCopyScreenshots") }
     }
-    /// 同步手机短信（手机端只转发短信 App 的通知）
+    /// 同步手机通知（手机端转发会响的通知，微信除外）
     @Published var mirrorNotifications: Bool {
         didSet { UserDefaults.standard.set(mirrorNotifications, forKey: "mirrorNotifications") }
     }
@@ -204,6 +206,7 @@ final class LinkController: ObservableObject {
                 self.client = c
                 self.device = p
                 self.info = info
+                dnd = info.dnd.flatMap(DndMode.init(rawValue:))
                 connectionID = UUID()
                 refusedSince = nil
                 phoneAppDown = false
@@ -237,6 +240,7 @@ final class LinkController: ObservableObject {
             if client != nil {
                 client = nil
                 recent = []
+                dnd = nil
             }
             state = .retrying(paired.name, lastEvent ?? "")
             if !knocked.isEmpty { continue } // 手机刚敲过门，不用等
@@ -290,7 +294,12 @@ final class LinkController: ObservableObject {
         switch event {
         case .hello(let info):
             self.info = info
+            dnd = info.dnd.flatMap(DndMode.init(rawValue:))
             updatePrefetch()
+
+        case .dnd(let mode):
+            AppLog.write("手机免打扰：\(mode.title)")
+            dnd = mode
 
         case .power(let charging, let battery):
             AppLog.write(charging ? "手机已接上电源" : "手机已拔掉电源")
@@ -320,10 +329,12 @@ final class LinkController: ObservableObject {
 
         case .notification(let n):
             guard mirrorNotifications else { return }
-            // 手机只发短信过来；识别到验证码就直接复制，通知里把验证码放在标题最显眼的位置
-            let code = VerificationCode.extract(from: n.text)
-            // 日志里不记短信内容和验证码
-            AppLog.write("收到短信（\(n.text.count) 字），\(code == nil ? "没有识别出验证码" : "识别出验证码\(autoCopyCodes ? "并已复制" : "")")")
+            // 只在短信里找验证码：别的 App 的通知里的数字（订单号、金额）不能当验证码复制走。
+            // 旧版手机不带 sms 字段，那时只转发短信，按短信处理
+            let isSms = n.sms ?? true
+            let code = isSms ? VerificationCode.extract(from: n.text) : nil
+            // 日志里不记通知内容和验证码
+            AppLog.write("收到\(isSms ? "短信" : "通知（\(n.app)）")（\(n.text.count) 字）\(isSms ? "，\(code == nil ? "没有识别出验证码" : "识别出验证码\(autoCopyCodes ? "并已复制" : "")")" : "")")
             if let code {
                 if autoCopyCodes {
                     Clipboard.copyText(code)
@@ -335,7 +346,8 @@ final class LinkController: ObservableObject {
                     id: n.key
                 )
             } else {
-                Notifier.post(title: "短信 · \(n.title)", body: n.text, id: n.key)
+                // 标题：App 名 · 通知标题；短信 App 的名字就是「信息」，和原来的「短信 · 发件人」一个意思
+                Notifier.post(title: "\(n.app) · \(n.title)", body: n.text, id: n.key)
             }
 
         case .shared(let files):
@@ -394,7 +406,23 @@ final class LinkController: ObservableObject {
     func refreshInfo() async {
         guard let c = client, let info = try? await c.info(timeout: 5) else { return }
         self.info = info
+        dnd = info.dnd.flatMap(DndMode.init(rawValue:))
         updatePrefetch()
+    }
+
+    // MARK: - 免打扰
+
+    /// 面板上的免打扰按钮：关着就开成「仅优先」，开着（不管哪一档）就关。手机改完会回 dnd 事件，这里先按请求的值显示
+    func toggleDnd() async {
+        guard let c = client, let current = dnd else { return }
+        let target: DndMode = current.isOn ? .all : .priority
+        do {
+            dnd = try await c.setDnd(target)
+            lastEvent = target.isOn ? "免打扰已开" : "免打扰已关"
+        } catch {
+            lastEvent = "免打扰设置失败：\(error.localizedDescription)"
+            AppLog.write("免打扰设置失败：\(error)")
+        }
     }
 
     // MARK: - 本机相册副本

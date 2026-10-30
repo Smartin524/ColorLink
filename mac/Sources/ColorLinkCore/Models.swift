@@ -51,12 +51,35 @@ public struct DeviceInfo: Codable, Sendable {
     /// 电量和充电状态随手机的 power 事件更新
     public var battery: Int?
     public var charging: Bool?
+    /// 免打扰档位（见 DndMode）；nil 表示手机没开通知使用权，改不了
+    public var dnd: String?
+}
+
+/// 手机的免打扰档位，和安卓的中断过滤一一对应
+public enum DndMode: String, Codable, Sendable, CaseIterable {
+    case all, priority, alarms
+    /// 协议里叫 none；Swift 里不叫 none，免得和 Optional.none 混
+    case silent = "none"
+
+    public var title: String {
+        switch self {
+        case .all: "关"
+        case .priority: "仅优先"
+        case .alarms: "仅闹钟"
+        case .silent: "完全静音"
+        }
+    }
+
+    /// 是否算“开着免打扰”
+    public var isOn: Bool { self != .all }
 }
 
 public struct PhoneNotification: Codable, Sendable {
     public let key: String
     public let pkg: String
     public let app: String
+    /// 来自短信 App；Mac 只在短信里找验证码（旧版手机不带这个字段，按短信处理）
+    public let sms: Bool?
     public let title: String
     public let text: String
     public let time: Int64
@@ -73,6 +96,8 @@ public enum PhoneEvent: Sendable {
     case shared([SharedFile])
     /// 手机插上 / 拔掉电源。后台补缩略图只在充电时做，靠它开始和停下，不去问手机
     case power(charging: Bool, battery: Int?)
+    /// 免打扰档位变了（手机上手动改的，或 Mac 改完系统回调）
+    case dnd(DndMode)
     case unknown(String)
 }
 

@@ -157,6 +157,16 @@ public final class PhoneClient: @unchecked Sendable {
         return try JSONDecoder().decode(TrashResult.self, from: data)
     }
 
+    /// 改手机的免打扰档位。手机没开通知使用权时返回 503
+    public func setDnd(_ mode: DndMode) async throws -> DndMode {
+        struct T: Decodable { let mode: DndMode }
+        var req = request(url("api/dnd", ["mode": mode.rawValue]), timeout: 8)
+        req.httpMethod = "POST"
+        let (data, resp) = try await session.data(for: req)
+        try Self.check(resp)
+        return try JSONDecoder().decode(T.self, from: data).mode
+    }
+
     /// 取手机分享过来的文件，存进 dir，重名时自动加序号
     public func download(_ file: SharedFile, to dir: URL) async throws -> URL {
         let req = request(url("api/shared", ["id": file.id]), timeout: 120)
@@ -302,6 +312,9 @@ public final class PhoneClient: @unchecked Sendable {
         case "power":
             struct T: Decodable { let charging: Bool; let battery: Int? }
             if let v = try? d.decode(T.self, from: data) { return .power(charging: v.charging, battery: v.battery) }
+        case "dnd":
+            struct T: Decodable { let mode: DndMode }
+            if let v = try? d.decode(T.self, from: data) { return .dnd(v.mode) }
         default:
             break
         }
