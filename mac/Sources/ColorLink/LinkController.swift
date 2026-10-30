@@ -27,6 +27,9 @@ final class LinkController: ObservableObject {
     @Published private(set) var thumbs: ThumbnailCache?
     /// 手机相册在本机的完整副本
     @Published private(set) var library: MediaLibrary?
+    /// 连上后核对列表的任务；核对完才决定要不要补缩略图
+    private var syncTask: Task<Void, Never>?
+    /// 后台补缩略图的任务；只在手机充电时存在
     private var prefetchTask: Task<Void, Never>?
     /// 每次连上换一个新值，界面据此刷新列表
     @Published private(set) var connectionID = UUID()
@@ -207,7 +210,7 @@ final class LinkController: ObservableObject {
                 state = .connected(p.name)
                 backoff = 1
                 Task { await refreshRecent() }
-                if let library, let thumbs { startBackgroundSync(c, library: library, thumbs: thumbs) }
+                if let library { startBackgroundSync(c, library: library) }
 
                 let stream = Task {
                     for try await event in c.events() {
@@ -227,6 +230,8 @@ final class LinkController: ObservableObject {
                 AppLog.write("连接 \(endpoint) 失败：\(error)")
             }
 
+            syncTask?.cancel()
+            syncTask = nil
             prefetchTask?.cancel()
             prefetchTask = nil
             if client != nil {
@@ -285,6 +290,13 @@ final class LinkController: ObservableObject {
         switch event {
         case .hello(let info):
             self.info = info
+            updatePrefetch()
+
+        case .power(let charging, let battery):
+            AppLog.write(charging ? "手机已接上电源" : "手机已拔掉电源")
+            info?.charging = charging
+            if let battery { info?.battery = battery }
+            updatePrefetch()
 
         case .media:
             Task { await refreshRecent() }
@@ -378,24 +390,43 @@ final class LinkController: ObservableObject {
         }
     }
 
+    /// 打开面板时问一次电量。平时不问：电量和充电状态靠手机推的事件更新，定时问会把深睡的手机叫醒
+    func refreshInfo() async {
+        guard let c = client, let info = try? await c.info(timeout: 5) else { return }
+        self.info = info
+        updatePrefetch()
+    }
+
     // MARK: - 本机相册副本
 
-    /// 连上后在后台：先把照片、视频列表和手机核对一遍；手机在充电时，再把本机还没有的缩略图补齐。
-    /// 生成缩略图要占手机 CPU，所以不充电时不补（相册里看到哪张再取哪张）
-    private func startBackgroundSync(_ c: PhoneClient, library: MediaLibrary, thumbs: ThumbnailCache) {
-        prefetchTask?.cancel()
-        prefetchTask = Task { [weak self] in
+    /// 连上后在后台把照片、视频列表和手机核对一遍，核对完再看要不要补缩略图
+    private func startBackgroundSync(_ c: PhoneClient, library: MediaLibrary) {
+        syncTask?.cancel()
+        syncTask = Task { [weak self] in
             for kind in [MediaKind.image, .video] { await library.sync(kind, client: c) }
+            guard let self, !Task.isCancelled else { return }
+            self.syncTask = nil
+            self.updatePrefetch()
+        }
+    }
+
+    /// 本机还没有的缩略图只在手机充电时补：生成缩略图要占手机 CPU，不充电时相册里看到哪张再取哪张。
+    /// 开始和停下都由手机推来的充电事件（和 hello）决定，不定时去问手机：每问一次都会把深睡的手机叫醒。
+    /// 连上时、充电状态变了时、列表核对完时各调一次，随时可以调
+    private func updatePrefetch() {
+        guard let c = client, let library, let thumbs, info?.charging == true, syncTask == nil else {
+            prefetchTask?.cancel()
+            prefetchTask = nil
+            return
+        }
+        guard prefetchTask == nil else { return }
+        prefetchTask = Task { [weak self] in
+            // 被取消的任务不是当前任务（取消时已经换掉了），别把新任务的记录抹掉
+            defer { if !Task.isCancelled { self?.prefetchTask = nil } }
             var announced = false
             // 取不到的（手机上生成不了缩略图的文件）本次连接里不再重试，否则会一直重复请求
             var failed = Set<String>()
             while !Task.isCancelled {
-                guard let info = try? await c.info(timeout: 5) else { return }
-                self?.info = info
-                guard info.charging == true else {
-                    try? await Task.sleep(for: .seconds(120))
-                    continue
-                }
                 let missing = [MediaKind.image, .video].flatMap { library.lists[$0]?.items ?? [] }
                     .filter { !failed.contains($0.cacheKey) && !thumbs.has($0) }
                 guard !missing.isEmpty else {
@@ -408,7 +439,7 @@ final class LinkController: ObservableObject {
                     AppLog.write("手机在充电，后台补齐缩略图：还差 \(missing.count) 张")
                     announced = true
                 }
-                // 每轮最多 200 张、同时 3 个请求；一轮做完再看一眼手机还在不在充电
+                // 每轮最多 200 张、同时 3 个请求；拔掉电源时任务被取消，一轮做完就停
                 var queue = missing.prefix(200).makeIterator()
                 let failedNow = await withTaskGroup(of: String?.self) { group in
                     func add(_ item: MediaItem) {

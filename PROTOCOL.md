@@ -70,3 +70,9 @@ ColorOS 锁屏后，Wi-Fi 芯片会过滤组播包，手机收不到 Mac 发来�
 | `notification` | `{"key","pkg","app","title","text","time"}`。只转发短信 App 的通知（默认短信 App 加常见短信包名），同一条 2 分钟内去重；验证码由 Mac 端识别 |
 | `clipboard` | `{"text"}`，在手机上用分享菜单「发送到 Mac」时发出 |
 | `shared` | `{"items":[{"id","name","mime","size"}]}`，在手机上用分享菜单把图片 / 文件「发送到 Mac」时发出；Mac 用 `GET /api/shared?id=` 取文件（手机保留一小时） |
+| `power` | `{"charging":true,"battery":85}`，插上 / 拔掉电源时发出。Mac 只在手机充电时在后台补缩略图，靠它开始和停下，不定时请求 `/api/info` |
+
+## 省电约定
+
+- 手机只在**传输类**请求（`/api/media`、`/api/thumb`、`/api/file`、`/api/upload`、`/api/shared`）期间持有 Wi-Fi 锁和唤醒锁，响应写完 3 秒后释放；`/api/info`、`/api/id`、`/api/events` 不持锁
+- Mac 不定时询问手机：电量、充电状态靠 `hello` 和 `power` 事件；只有打开状态栏面板时问一次 `/api/info`，以及事件流安静超过 3 分钟时的探活

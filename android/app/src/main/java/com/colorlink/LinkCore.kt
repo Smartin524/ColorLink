@@ -12,12 +12,14 @@ import android.net.NetworkRequest
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.MediaStore
+import org.json.JSONObject
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -85,7 +87,7 @@ object LinkCore {
         }
         if (worker.isShutdown) worker = Executors.newSingleThreadExecutor()
         media = MediaRepo(app)
-        server = HttpServer(Api(app, media, ::touch)::handle).also { it.start(PORT) }
+        server = HttpServer(Api(app, media, ::transferStarted, ::transferFinished)::handle).also { it.start(PORT) }
         registerNsd()
         watchNetwork()
 
@@ -110,7 +112,13 @@ object LinkCore {
                 BleWake.update(app)
             }
         }
-        app.registerReceiver(powerReceiver, IntentFilter(Intent.ACTION_POWER_CONNECTED))
+        app.registerReceiver(
+            powerReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_POWER_CONNECTED)
+                addAction(Intent.ACTION_POWER_DISCONNECTED)
+            },
+        )
         // 开关热点时敲门：Mac 可能正要连上手机热点，而这对手机来说不算“网络变化”
         app.registerReceiver(tetherReceiver, IntentFilter("android.net.conn.TETHER_STATE_CHANGED"))
         worker.execute { media.prewarmIfCharging() }
@@ -136,25 +144,39 @@ object LinkCore {
         server?.stop()
         server = null
         worker.shutdownNow()
+        activeTransfers = 0
+        handler.removeCallbacks(idleRelease)
         releaseLocks()
         AppLog.i(TAG, "核心已停止")
     }
 
-    // region 省电：只在有请求时短暂持锁，空闲 15 秒后释放
+    // region 省电：只在传输（列表、缩略图、原文件、收发文件）期间持锁，最后一个传输写完 3 秒后释放
+    //
+    // 探活、事件流这类轻请求不持锁：Mac 深睡探活每几分钟来一次，要是每次都醒 15 秒，手机整夜睡不踏实
 
-    private val idleRelease = Runnable { releaseLocks() }
+    private var activeTransfers = 0
+    private val idleRelease = Runnable { if (activeTransfers == 0) releaseLocks() }
 
-    private fun touch() {
+    private fun transferStarted() {
         handler.post {
-            acquireLocks()
+            activeTransfers++
             handler.removeCallbacks(idleRelease)
-            handler.postDelayed(idleRelease, 15_000)
+            acquireLocks()
+        }
+    }
+
+    /** 响应（包括原文件的整个流）写完才算结束。连着来的缩略图请求之间不释放，免得锁反复开关 */
+    private fun transferFinished() {
+        handler.post {
+            activeTransfers = (activeTransfers - 1).coerceAtLeast(0)
+            if (activeTransfers == 0) handler.postDelayed(idleRelease, 3_000)
         }
     }
 
     @Suppress("DEPRECATION")
     private fun acquireLocks() {
         if (wifiLock == null) {
+            // 高性能模式是唯一能让后台传输时 Wi-Fi 不进省电模式的锁；只在传输期间持有，拖大视频时能跑满带宽
             wifiLock = app.getSystemService(WifiManager::class.java)
                 .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "colorlink:transfer")
                 .apply { setReferenceCounted(false) }
@@ -165,7 +187,8 @@ object LinkCore {
                 .apply { setReferenceCounted(false) }
         }
         wifiLock?.acquire()
-        wakeLock?.acquire(60_000) // 兜底超时，万一忘记释放也不会一直耗电
+        // 兜底超时，万一忘记释放也不会一直耗电；每个新传输开始都重新计时，传一个大视频不会中途掉锁
+        wakeLock?.acquire(10 * 60_000)
     }
 
     private fun releaseLocks() {
@@ -316,9 +339,19 @@ object LinkCore {
         }
     }
 
+    /**
+     * 插拔电源：告诉 Mac 充电状态变了。Mac 只在手机充电时在后台补缩略图，靠这个事件开始和停下，
+     * 不用隔一会儿来问一次（每问一次都会把深睡的手机叫醒）。
+     */
     private val powerReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            worker.execute { media.prewarmIfCharging() }
+            val charging = intent.action == Intent.ACTION_POWER_CONNECTED
+            if (EventBus.count > 0) {
+                val battery = app.getSystemService(BatteryManager::class.java)
+                    ?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                EventBus.publish("power", JSONObject().put("charging", charging).put("battery", battery))
+            }
+            if (charging) worker.execute { media.prewarmIfCharging() }
         }
     }
 }

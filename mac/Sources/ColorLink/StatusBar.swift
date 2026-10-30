@@ -83,6 +83,7 @@ final class StatusBarController: NSObject {
         if !dropMode {
             panel.makeKey()
             Task { await link.refreshRecent() }
+            Task { await link.refreshInfo() }
         }
     }
 

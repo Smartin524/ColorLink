@@ -11,6 +11,7 @@
   curl -X POST localhost:8765/debug/notify          # 默认发一条验证码短信
   curl -X POST 'localhost:8765/debug/clipboard?text=hello'
   curl -X POST localhost:8765/debug/knock
+  curl -X POST 'localhost:8765/debug/power?charging=1'   # 模拟插上电源（0 = 拔掉）
 
 模拟“锁屏后 mDNS 收不到”：加 --no-mdns，此时 Mac 只能靠敲门或上次的地址找到手机。
 
@@ -222,10 +223,11 @@ class State:
         self.lock = threading.Lock()
         self.mac_name = "Mac"
         self.port = 8765
+        self.charging = False
 
     def info(self):
         return {"deviceId": DEVICE_ID, "name": DEVICE_NAME, "model": "PHZ110", "android": "15",
-                "battery": BATTERY or random.randint(40, 95), "charging": False}
+                "battery": BATTERY or random.randint(40, 95), "charging": self.charging}
 
 
 STATE = None
@@ -455,6 +457,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/debug/clipboard":
             STATE.bus.publish("clipboard", {"text": q.get("text", "")})
             return self.send_json({"ok": True})
+        if path == "/debug/power":
+            # 模拟插拔电源：?charging=1 插上，?charging=0 拔掉。Mac 据此开始 / 停止后台补缩略图
+            STATE.charging = q.get("charging", "1") == "1"
+            event = {"charging": STATE.charging, "battery": STATE.info()["battery"]}
+            STATE.bus.publish("power", event)
+            print(f"[mock] 模拟{'插上' if STATE.charging else '拔掉'}电源，已推送", flush=True)
+            return self.send_json(event)
         return self.send_text(404, "unknown debug command")
 
 

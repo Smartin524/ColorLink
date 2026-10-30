@@ -299,6 +299,9 @@ public final class PhoneClient: @unchecked Sendable {
         case "shared":
             struct T: Decodable { let items: [SharedFile] }
             if let v = try? d.decode(T.self, from: data) { return .shared(v.items) }
+        case "power":
+            struct T: Decodable { let charging: Bool; let battery: Int? }
+            if let v = try? d.decode(T.self, from: data) { return .power(charging: v.charging, battery: v.battery) }
         default:
             break
         }

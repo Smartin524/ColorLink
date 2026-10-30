@@ -12,16 +12,21 @@ import java.net.URLEncoder
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
-/** 协议见 PROTOCOL.md。onActivity 在每个请求到来时调用，用于短暂持有 Wi-Fi 锁和唤醒锁。 */
+/**
+ * 协议见 PROTOCOL.md。
+ *
+ * onTransferStart / onTransferEnd 包住传输类接口（列表、缩略图、原文件、收发文件），
+ * 用来在传输期间持有 Wi-Fi 锁和唤醒锁；探活、事件流这类轻请求不算传输，不持锁。
+ */
 class Api(
     private val ctx: Context,
     private val media: MediaRepo,
-    private val onActivity: () -> Unit,
+    private val onTransferStart: () -> Unit,
+    private val onTransferEnd: () -> Unit,
 ) {
     private var failedPairs = 0
 
     fun handle(req: Request): Response {
-        onActivity()
         if (req.path == "/api/pair") return pair(req)
         if (req.path == "/api/logs") {
             return if (authorized(req)) Response.bytes(AppLog.dump().toByteArray(), "text/plain; charset=utf-8")
@@ -35,20 +40,33 @@ class Api(
                 EventBus.ping()
                 Response.json(info())
             }
-            "/api/media" -> {
-                val kind = MediaRepo.Kind.of(req.q("kind")) ?: return Response.text(400, "bad kind")
+            "/api/media" -> transfer {
+                val kind = MediaRepo.Kind.of(req.q("kind")) ?: return@transfer Response.text(400, "bad kind")
                 val offset = req.q("offset")?.toIntOrNull()?.coerceAtLeast(0) ?: 0
                 val limit = req.q("limit")?.toIntOrNull()?.coerceIn(1, 500) ?: 200
                 Response.json(media.list(kind, offset, limit))
             }
-            "/api/thumb" -> thumb(req)
-            "/api/file" -> file(req)
+            "/api/thumb" -> transfer { thumb(req) }
+            "/api/file" -> transfer { file(req) }
             "/api/events" -> events(req)
-            "/api/upload" -> upload(req)
+            "/api/upload" -> transfer { upload(req) }
             "/api/trash" -> trash(req)
-            "/api/shared" -> shared(req)
+            "/api/shared" -> transfer { shared(req) }
             else -> Response.text(404, "not found")
         }
+    }
+
+    /** 传输期间持锁：从开始处理到响应（包括原文件的整个流）写完为止；处理出错也会放锁 */
+    private inline fun transfer(block: () -> Response): Response {
+        onTransferStart()
+        val resp = try {
+            block()
+        } catch (e: Throwable) {
+            onTransferEnd()
+            throw e
+        }
+        resp.onDone = onTransferEnd
+        return resp
     }
 
     private fun authorized(req: Request): Boolean {

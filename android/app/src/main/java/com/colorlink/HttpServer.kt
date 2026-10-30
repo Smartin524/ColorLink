@@ -33,6 +33,9 @@ class Response(
     val headers: MutableMap<String, String> = mutableMapOf(),
     val body: Body,
 ) {
+    /** 响应写完（或写失败）后回调一次，用来结束传输计时。 */
+    var onDone: (() -> Unit)? = null
+
     sealed class Body {
         class Bytes(val data: ByteArray) : Body()
         class Stream(val input: InputStream, val length: Long) : Body()
@@ -117,7 +120,12 @@ class HttpServer(private val handler: (Request) -> Response) {
                     }
                     // 读掉没用完的请求体，保证 keep-alive 下一个请求能对齐
                     (req.body as BoundedInputStream).drain()
-                    if (!write(output, req, resp)) break
+                    val reusable = try {
+                        write(output, req, resp)
+                    } finally {
+                        resp.onDone?.invoke()
+                    }
+                    if (!reusable) break
                     if (req.header("connection").equals("close", ignoreCase = true)) break
                 }
             }

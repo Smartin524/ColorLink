@@ -48,8 +48,9 @@ public struct DeviceInfo: Codable, Sendable {
     public let name: String
     public let model: String
     public let android: String
-    public let battery: Int?
-    public let charging: Bool?
+    /// 电量和充电状态随手机的 power 事件更新
+    public var battery: Int?
+    public var charging: Bool?
 }
 
 public struct PhoneNotification: Codable, Sendable {
@@ -70,6 +71,8 @@ public enum PhoneEvent: Sendable {
     case clipboard(String)
     /// 手机上从分享菜单「发送到 Mac」的文件
     case shared([SharedFile])
+    /// 手机插上 / 拔掉电源。后台补缩略图只在充电时做，靠它开始和停下，不去问手机
+    case power(charging: Bool, battery: Int?)
     case unknown(String)
 }
 
