@@ -171,3 +171,7 @@ adb logcat -s ColorLink.Core ColorLink.Service ColorLink.Notify ColorLink.Http C
 - **全盘文件浏览**（`MANAGE_EXTERNAL_STORAGE`）还没做，现在只能浏览照片、视频和录音。
 - 接入 Finder 侧边栏（File Provider 扩展）、从「最近照片」直接拖出到别的 App，都还没做。
 - 手机深度休眠时 CPU 暂停，20 秒一次的 ping 会延迟，Mac 可能 90 秒后才断开重连一次。这对功能没有影响，但会多一次重连，可以在实测后调整。
+
+### 本机安装与更新
+
+应用安装在 `/Applications/ColorLink.app`。运行原构建脚本后，若应用已安装，将自动更新该位置；首次安装可向构建脚本传入 `--install`，或在已有构建产物时执行 `./install-app.sh`。应用标识和用户设置保留；运行中的旧版本需退出并重新打开。
