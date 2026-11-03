@@ -40,20 +40,16 @@ public enum AppDirs {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("ColorLink")
     }
 
-    /// 截图、保存的文件放在「下载/ColorLink」，方便在 Finder 里找到。
-    /// 「图片/ColorLink」：面板里点“下载”存到这里
-    public static var pictures: URL {
-        FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0].appendingPathComponent("ColorLink")
-    }
-
     /// 这台手机在本机长期保存的数据（相册列表、缩略图）。放在「应用程序支持」而不是「缓存」：缓存可能被系统清掉
     public static func library(_ deviceId: String) -> URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("ColorLink/\(deviceId)")
     }
 
+    /// 用户保存的照片、截图和接收文件直接放在「文稿/Colorlink」。
     public static var downloads: URL {
-        FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0].appendingPathComponent("ColorLink")
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Colorlink", isDirectory: true)
     }
 }
 

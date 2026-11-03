@@ -266,7 +266,7 @@ if trigger {
     while let ev = try await iterator.next() {
         if case .screenshot(let item) = ev {
             ok("收到截图事件 \(item.name)（\(ms(since: t))）")
-            let url = try await client.download(item, to: AppDirs.downloads.appendingPathComponent("截图"))
+            let url = try await client.download(item, to: AppDirs.downloads)
             guard Clipboard.copy(url) else { fail("写入剪贴板失败") }
             let types = NSPasteboard.general.types ?? []
             ok("已写入剪贴板（\(types.contains(.png) ? "PNG" : "")\(types.contains(.tiff) ? " + TIFF" : "")），从截图到可粘贴共 \(ms(since: t))")

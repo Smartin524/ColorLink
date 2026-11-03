@@ -123,11 +123,15 @@ cd android && ./gradlew assembleDebug
 adb logcat -s ColorLink.Core ColorLink.Service ColorLink.Notify ColorLink.Http ColorLink.Media ColorLink.Ble ColorLink.Wake ColorLink.Knock
 ```
 
+## Mac 文件保存位置
+
+下载的照片、自动接收的截图和手机分享的文件统一直接保存到 `~/Documents/Colorlink`，不创建分类子文件夹。重名文件自动加序号。已下载的旧文件仍按原路径访问。
+
 ## 日志与反馈
 
 - 手机：`files/logs/colorlink.log`（App 私有目录，超过 1 MB 轮换，最多 2 MB），记录启动、连接 / 断开、前台服务、敲门、配对、收文件、短信转发（不记内容）、上次被系统结束的原因。
 - Mac：`~/Library/Logs/ColorLink/colorlink.log`，记录连接状态、敲门、失败原因、截图、短信（只记是否识别出验证码，不记内容）、发文件、拖拽弹出。
-- **反馈时**：状态栏图标 → 右上角「⋯」→「导出诊断日志」，会在「下载/ColorLink/诊断日志-时间」里生成 `手机.log`、`Mac.log`、`概况.txt`。手机日志通过 `GET /api/logs`（需要令牌）取得，所以导出时手机要连着。
+- **反馈时**：状态栏图标 → 右上角「⋯」→「导出诊断日志」，会直接在「文稿/Colorlink」生成带同一批次前缀的 `手机.log`、`Mac.log`、`概况.txt`。手机日志通过 `GET /api/logs`（需要令牌）取得，所以导出时手机要连着。
 - 手机没连上时，也可以用数据线取：`adb shell run-as com.colorlink cat files/logs/colorlink.log`
 
 ## 已验证 / 未验证

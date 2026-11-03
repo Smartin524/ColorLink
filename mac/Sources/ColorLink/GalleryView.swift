@@ -231,7 +231,7 @@ struct GalleryView: View {
         let run: () -> Void
     }
 
-    /// 菜单只有四项：打开、复制、下载（存到「图片/ColorLink」，和面板一致）、删除（移到手机的「最近删除」）。
+    /// 菜单只有四项：打开、复制、下载（存到「文稿/Colorlink」，和面板一致）、删除（移到手机的「最近删除」）。
     /// 选了几项看标题栏的「已选 N 项」，菜单里不重复写
     private func actions(for targets: [MediaItem]) -> [Action] {
         guard !targets.isEmpty else { return [] }
@@ -371,20 +371,20 @@ struct GalleryView: View {
         }
     }
 
-    /// 下载到「图片/ColorLink」；下载过的不重新下
+    /// 下载到「文稿/Colorlink」；下载过的不重新下
     private func save(_ targets: [MediaItem]) {
         Task {
             var done = 0
             for item in targets {
                 do {
-                    _ = try await link.download(item, to: AppDirs.pictures)
+                    _ = try await link.download(item, to: AppDirs.downloads)
                     done += 1
                 } catch {
                     message = error.localizedDescription
                 }
             }
             guard done > 0 else { return }
-            message = "已下载到「图片/ColorLink」"
+            message = "已下载到「文稿/Colorlink」"
             try? await Task.sleep(for: .seconds(2))
             message = nil
         }

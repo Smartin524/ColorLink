@@ -373,7 +373,7 @@ final class LinkController: ObservableObject {
             guard autoCopyScreenshots else { return }
             Task {
                 do {
-                    let url = try await c.download(item, to: AppDirs.downloads.appendingPathComponent("截图"))
+                    let url = try await c.download(item, to: AppDirs.downloads)
                     if Clipboard.copyImage(at: url) {
                         Notifier.post(title: "截图已复制", body: "可以直接 ⌘V 粘贴", image: url)
                         lastEvent = "截图已复制到剪贴板"
@@ -420,12 +420,12 @@ final class LinkController: ObservableObject {
         }
     }
 
-    /// 手机从分享菜单发来的文件：图片存进「图片/ColorLink」，其他存进「下载/ColorLink」，并放进剪贴板
+    /// 手机分享的所有文件直接存进「文稿/Colorlink」，并放进剪贴板
     private func receiveShared(_ files: [SharedFile], client c: PhoneClient) async {
         var saved: [URL] = []
         for f in files {
             do {
-                let dir = f.mime.hasPrefix("image/") ? AppDirs.pictures : AppDirs.downloads
+                let dir = AppDirs.downloads
                 saved.append(try await c.download(f, to: dir))
             } catch {
                 AppLog.write("取分享的文件失败 \(f.name)：\(error)")
@@ -594,11 +594,11 @@ final class LinkController: ObservableObject {
         return cached
     }
 
-    /// 下载原图存到「图片/ColorLink」
+    /// 下载原图存到「文稿/Colorlink」
     func saveToPictures(_ item: MediaItem) async -> Bool {
         do {
-            let url = try await download(item, to: AppDirs.pictures)
-            lastEvent = "已存到 图片/ColorLink：\(url.lastPathComponent)"
+            let url = try await download(item, to: AppDirs.downloads)
+            lastEvent = "已存到 文稿/Colorlink：\(url.lastPathComponent)"
             return true
         } catch {
             lastEvent = "下载失败：\(error.localizedDescription)"
@@ -657,11 +657,12 @@ final class LinkController: ObservableObject {
 
     // MARK: - 诊断日志
 
-    /// 把 Mac 和手机的日志一起导出到「下载/ColorLink/诊断日志-时间」，并在 Finder 里打开
+    /// 诊断日志直接导出到「文稿/Colorlink」，同批文件使用相同前缀。
     func exportDiagnostics() async {
         let stamp = Date().formatted(.iso8601.year().month().day().dateSeparator(.omitted)
             .time(includingFractionalSeconds: false).timeSeparator(.omitted))
-        let dir = AppDirs.downloads.appendingPathComponent("诊断日志-\(stamp)")
+        let dir = AppDirs.downloads
+        let prefix = "诊断日志-\(stamp)-\(UUID().uuidString.prefix(8))"
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
         var summary = [
@@ -674,7 +675,7 @@ final class LinkController: ObservableObject {
         ]
         if let c = client {
             do {
-                try await c.logs().write(to: dir.appendingPathComponent("手机.log"), atomically: true, encoding: .utf8)
+                try await c.logs().write(to: dir.appendingPathComponent("\(prefix)-手机.log"), atomically: true, encoding: .utf8)
                 summary.append("手机日志：已导出")
             } catch {
                 summary.append("手机日志：获取失败（\(error.localizedDescription)）")
@@ -682,8 +683,8 @@ final class LinkController: ObservableObject {
         } else {
             summary.append("手机日志：手机未连接，没有导出")
         }
-        try? AppLog.dump().write(to: dir.appendingPathComponent("Mac.log"), atomically: true, encoding: .utf8)
-        try? summary.joined(separator: "\n").write(to: dir.appendingPathComponent("概况.txt"), atomically: true, encoding: .utf8)
+        try? AppLog.dump().write(to: dir.appendingPathComponent("\(prefix)-Mac.log"), atomically: true, encoding: .utf8)
+        try? summary.joined(separator: "\n").write(to: dir.appendingPathComponent("\(prefix)-概况.txt"), atomically: true, encoding: .utf8)
         AppLog.write("已导出诊断日志")
         NSWorkspace.shared.activateFileViewerSelecting([dir])
     }

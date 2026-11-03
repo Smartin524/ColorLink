@@ -210,7 +210,7 @@ struct DownloadedMark: View {
     }
 }
 
-/// 一张最近照片：悬停时上半是“下载”（存到「图片/ColorLink」），下半是“复制”（原图放进剪贴板）
+/// 一张最近照片：悬停时上半是“下载”（存到「文稿/Colorlink」），下半是“复制”（原图放进剪贴板）
 struct RecentThumb: View {
     let item: MediaItem
     @EnvironmentObject var link: LinkController
