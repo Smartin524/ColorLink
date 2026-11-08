@@ -375,7 +375,7 @@ final class LinkController: ObservableObject {
                 do {
                     let url = try await c.download(item, to: AppDirs.downloads)
                     if Clipboard.copyImage(at: url) {
-                        Notifier.post(title: "截图已复制", body: "可以直接 ⌘V 粘贴", image: url)
+                        Notifier.post(title: "截图已复制", body: "", image: url)
                         lastEvent = "截图已复制到剪贴板"
                     }
                 } catch {

@@ -25,6 +25,11 @@ class ShareActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!Prefs.connectionEnabled(this)) {
+            Toast.makeText(this, "连接已关闭，请先在 ColorLink 中开启", Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
         LinkCore.start(this)
         val uris = streams(intent)
         val text = intent.getStringExtra(Intent.EXTRA_TEXT)
@@ -64,15 +69,17 @@ class ShareActivity : Activity() {
 
     /** Mac 没连着时敲门，最多等 5 秒 */
     private fun waitForMac(): Boolean {
+        if (!Prefs.connectionEnabled(this)) return false
         if (EventBus.count > 0) return true
         main.post { Toast.makeText(applicationContext, "正在连接 Mac…", Toast.LENGTH_SHORT).show() }
         LinkCore.knockSoon(force = true)
         val deadline = SystemClock.elapsedRealtime() + 5_000
         while (SystemClock.elapsedRealtime() < deadline) {
+            if (!Prefs.connectionEnabled(this)) return false
             if (EventBus.count > 0) return true
             Thread.sleep(100)
         }
-        return EventBus.count > 0
+        return Prefs.connectionEnabled(this) && EventBus.count > 0
     }
 
     private fun done(msg: String) {

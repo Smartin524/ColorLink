@@ -124,7 +124,6 @@ object ColorOS {
 
     /** 读取系统记录的最近几次进程退出原因（Android 11+）。 */
     fun recentExits(ctx: Context, max: Int = 8): List<Exit> {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return emptyList()
         val am = ctx.getSystemService(ActivityManager::class.java) ?: return emptyList()
         return am.getHistoricalProcessExitReasons(ctx.packageName, 0, max).map { info ->
             val (reason, hint) = describe(info.reason)

@@ -2,4 +2,5 @@
 <resources>
     <string name="app_name">ColorLink</string>
     <string name="share_label">发送到 Mac</string>
+    <string name="pair_code">%1$s %2$s</string>
 </resources>

@@ -39,6 +39,13 @@ object Prefs {
         sp(ctx).edit().putString("pairCode", randomCode()).apply()
     }
 
+    /** 总开关默认开启，升级不改变现有使用习惯；关闭不清除配对。 */
+    fun connectionEnabled(ctx: Context) = sp(ctx).getBoolean("connectionEnabled", true)
+
+    fun setConnectionEnabled(ctx: Context, value: Boolean) {
+        sp(ctx).edit().putBoolean("connectionEnabled", value).apply()
+    }
+
     /**
      * 空闲时也用前台服务保活。默认开：前台服务的进程优先级更高，ColorOS 清理和冻结时都会放过它；
      * 代价是通知栏底部多一条折叠、不显示状态栏图标、不响不振的「待命中」通知。

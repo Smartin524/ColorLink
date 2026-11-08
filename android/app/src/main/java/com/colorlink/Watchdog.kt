@@ -21,7 +21,12 @@ class Watchdog : JobService() {
         private const val JOB_ID = 1001
 
         /** 登记一次即可；已经登记过就不动 */
+        fun cancel(ctx: Context) {
+            ctx.getSystemService(JobScheduler::class.java).cancel(JOB_ID)
+        }
+
         fun schedule(ctx: Context) {
+            if (!Prefs.connectionEnabled(ctx)) return
             val js = ctx.getSystemService(JobScheduler::class.java)
             if (js.getPendingJob(JOB_ID) != null) return
             val job = JobInfo.Builder(JOB_ID, ComponentName(ctx, Watchdog::class.java))
@@ -35,6 +40,10 @@ class Watchdog : JobService() {
     }
 
     override fun onStartJob(params: JobParameters?): Boolean {
+        if (!Prefs.connectionEnabled(this)) {
+            cancel(this)
+            return false
+        }
         AppLog.init(this)
         if (!LinkCore.running) {
             AppLog.i(TAG, "定时检查：ColorLink 没在运行，重新启动")

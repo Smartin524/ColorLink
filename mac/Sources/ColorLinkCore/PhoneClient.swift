@@ -131,6 +131,21 @@ public final class PhoneClient: @unchecked Sendable {
         return try JSONDecoder().decode(MediaPage.self, from: data)
     }
 
+    /// Bounded metadata probe: no full-resolution decoding or original-file download.
+    public func captureDateHeader(_ item: MediaItem) async throws -> Data {
+        let limit = 256 * 1024
+        var req = request(url("api/file", ["kind": item.kind.rawValue, "id": "\(item.id)"]), timeout: 10)
+        req.setValue("bytes=0-\(limit - 1)", forHTTPHeaderField: "Range")
+        let (bytes, response) = try await session.bytes(for: req)
+        try Self.check(response)
+        var data = Data()
+        for try await byte in bytes {
+            data.append(byte)
+            if data.count == limit { break }
+        }
+        return data
+    }
+
     public func thumbnail(_ item: MediaItem, size: Int = 256) async throws -> Data {
         try await get("api/thumb", ["kind": item.kind.rawValue, "id": "\(item.id)", "v": "\(item.modified)", "size": "\(size)"])
     }

@@ -8,7 +8,6 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
 import android.os.ParcelUuid
 
 private const val TAG = "ColorLink.Ble"
@@ -32,22 +31,21 @@ object BleWake {
     /** 与 Mac 端 BLEBeacon.serviceUUID 保持一致。 */
     val SERVICE_UUID: ParcelUuid = ParcelUuid.fromString("7A1C3F0E-5B2D-4E8A-9C61-3D4F2B8E9A10")
 
-    fun hasPermission(ctx: Context) = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-        ctx.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
+    fun hasPermission(ctx: Context) = ctx.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
 
     /** 当前是否在扫描（本进程里的记录；进程刚启动时未知） */
     private var scanning: Boolean? = null
 
     /** 按当前状态开 / 关扫描：没连着 Mac 且有局域网时才扫。状态变化时随时调用 */
     fun update(ctx: Context) {
-        val want = EventBus.count == 0 && MacNetworks.shouldScan(ctx)
+        val want = Prefs.connectionEnabled(ctx) && EventBus.count == 0 && MacNetworks.shouldScan(ctx)
         if (want == scanning) return
         if (want) register(ctx) else unregister(ctx)
     }
 
     private fun unregister(ctx: Context) {
-        val scanner = ctx.getSystemService(BluetoothManager::class.java)?.adapter?.bluetoothLeScanner
         try {
+            val scanner = ctx.getSystemService(BluetoothManager::class.java)?.adapter?.bluetoothLeScanner
             scanner?.stopScan(pendingIntent(ctx))
             scanning = false
             AppLog.i(TAG, "蓝牙唤醒暂停（${if (EventBus.count > 0) "已连着 Mac" else "不在连过 Mac 的网络里"}）")

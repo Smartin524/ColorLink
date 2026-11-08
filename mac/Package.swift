@@ -9,6 +9,7 @@ let package = Package(
         .target(name: "ColorLinkCore"),
         // 菜单栏 App
         .executableTarget(name: "ColorLink", dependencies: ["ColorLinkCore"]),
+        .testTarget(name: "ColorLinkCoreTests", dependencies: ["ColorLinkCore"]),
         // 命令行联调工具：没有手机时配合 mock/mock_phone.py 走一遍完整流程
         .executableTarget(name: "clcheck", dependencies: ["ColorLinkCore"]),
     ],

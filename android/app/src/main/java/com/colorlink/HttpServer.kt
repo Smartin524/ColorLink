@@ -68,6 +68,7 @@ class Response(
 class HttpServer(private val handler: (Request) -> Response) {
     private var socket: ServerSocket? = null
     private val pool = Executors.newCachedThreadPool()
+    private val clients = java.util.concurrent.ConcurrentHashMap.newKeySet<Socket>()
 
     @Volatile
     var port = 0
@@ -89,7 +90,15 @@ class HttpServer(private val handler: (Request) -> Response) {
                 } catch (e: IOException) {
                     break
                 }
-                pool.execute { serve(client) }
+                clients.add(client)
+                try {
+                    pool.execute {
+                        try { serve(client) } finally { clients.remove(client) }
+                    }
+                } catch (_: java.util.concurrent.RejectedExecutionException) {
+                    clients.remove(client)
+                    client.close()
+                }
             }
         }
         AppLog.i(TAG, "监听端口 $port")
@@ -101,6 +110,8 @@ class HttpServer(private val handler: (Request) -> Response) {
         } catch (_: IOException) {
         }
         pool.shutdownNow()
+        clients.forEach { runCatching { it.close() } }
+        clients.clear()
     }
 
     private fun serve(client: Socket) {

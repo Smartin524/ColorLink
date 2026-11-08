@@ -8,7 +8,6 @@ import android.database.Cursor
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.BatteryManager
-import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.provider.MediaStore
@@ -24,7 +23,9 @@ import java.util.concurrent.Semaphore
 private const val TAG = "ColorLink.Media"
 
 /** 通过 MediaStore 读取照片、视频、录音，并维护磁盘缩略图缓存。 */
-class MediaRepo(private val ctx: Context) {
+class MediaRepo(context: Context) {
+    // 只持有进程级 Application，避免调用方传入 Activity 时延长其生命周期。
+    private val ctx = context.applicationContext as android.app.Application
 
     enum class Kind(val key: String, val uri: Uri) {
         IMAGE("image", MediaStore.Images.Media.EXTERNAL_CONTENT_URI),
@@ -55,6 +56,9 @@ class MediaRepo(private val ctx: Context) {
         MediaColumns.RELATIVE_PATH,
     )
 
+    private fun projection(kind: Kind) =
+        if (kind == Kind.AUDIO) projection else projection + MediaColumns.DATE_TAKEN
+
     private fun toJson(kind: Kind, c: Cursor) = JSONObject().apply {
         put("id", c.getLong(0))
         put("kind", kind.key)
@@ -63,6 +67,11 @@ class MediaRepo(private val ctx: Context) {
         put("size", c.getLong(3))
         put("modified", c.getLong(4))
         put("added", c.getLong(5))
+        // MediaStore 的拍摄时间来自图片 EXIF / 视频元数据，单位是毫秒。
+        if (kind != Kind.AUDIO && !c.isNull(10)) {
+            val taken = c.getLong(10) / 1000
+            if (taken > 0) put("taken", taken)
+        }
         if (!c.isNull(6)) put("width", c.getInt(6))
         if (!c.isNull(7)) put("height", c.getInt(7))
         if (!c.isNull(8)) put("duration", c.getLong(8))
@@ -71,38 +80,29 @@ class MediaRepo(private val ctx: Context) {
 
     fun list(kind: Kind, offset: Int, limit: Int): JSONObject {
         val args = Bundle()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            args.putStringArray(ContentResolver.QUERY_ARG_SORT_COLUMNS, arrayOf(MediaColumns.DATE_ADDED))
-            args.putInt(ContentResolver.QUERY_ARG_SORT_DIRECTION, ContentResolver.QUERY_SORT_DIRECTION_DESCENDING)
-            args.putInt(ContentResolver.QUERY_ARG_LIMIT, limit)
-            args.putInt(ContentResolver.QUERY_ARG_OFFSET, offset)
-        } else {
-            // Android 10 的 MediaProvider 不认 LIMIT/OFFSET 参数，只能拼进排序语句
-            args.putString(
-                ContentResolver.QUERY_ARG_SQL_SORT_ORDER,
-                "${MediaColumns.DATE_ADDED} DESC LIMIT $limit OFFSET $offset",
-            )
-        }
+        args.putStringArray(ContentResolver.QUERY_ARG_SORT_COLUMNS, arrayOf(MediaColumns.DATE_ADDED))
+        args.putInt(ContentResolver.QUERY_ARG_SORT_DIRECTION, ContentResolver.QUERY_SORT_DIRECTION_DESCENDING)
+        args.putInt(ContentResolver.QUERY_ARG_LIMIT, limit)
+        args.putInt(ContentResolver.QUERY_ARG_OFFSET, offset)
         val items = JSONArray()
-        cr.query(kind.uri, projection, args, null)?.use { c ->
+        cr.query(kind.uri, projection(kind), args, null)?.use { c ->
             while (c.moveToNext()) items.put(toJson(kind, c))
         }
         // generation：媒体库的「代数」，任何增删改都会变。Mac 据此判断本地保存的列表还能不能直接用
-        return JSONObject().put("total", total(kind)).put("generation", generation()).put("items", items)
+        return JSONObject().put("metadataVersion", 1).put("total", total(kind)).put("generation", generation(kind)).put("items", items)
     }
 
-    private fun generation(): Long = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        MediaStore.getGeneration(ctx, MediaStore.VOLUME_EXTERNAL_PRIMARY)
-    } else {
-        -1L
-    }
+    private fun generation(kind: Kind): Long =
+        // 部分授权可能在媒体库没有增删时变化，不能据代数复用列表或总数。
+        if (MediaAccess.full(ctx, kind)) MediaStore.getGeneration(ctx, MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        else -android.os.SystemClock.elapsedRealtimeNanos().coerceAtLeast(1L)
 
     /** 每种媒体的总数，按媒体库「代数」缓存：没有增删就不重新数（一万多张照片数一次要把所有 ID 读一遍） */
     private val totals = HashMap<Kind, Pair<Long, Int>>()
 
     @Synchronized
     private fun total(kind: Kind): Int {
-        val generation = generation()
+        val generation = generation(kind)
         totals[kind]?.let { (gen, n) -> if (gen == generation && gen >= 0) return n }
         val n = cr.query(kind.uri, arrayOf(MediaColumns._ID), null, null)?.use { it.count } ?: 0
         totals[kind] = generation to n
@@ -110,7 +110,7 @@ class MediaRepo(private val ctx: Context) {
     }
 
     fun item(kind: Kind, id: Long): JSONObject? =
-        cr.query(kind.uri, projection, "${MediaColumns._ID}=?", arrayOf(id.toString()), null)?.use { c ->
+        cr.query(kind.uri, projection(kind), "${MediaColumns._ID}=?", arrayOf(id.toString()), null)?.use { c ->
             if (c.moveToFirst()) toJson(kind, c) else null
         }
 
@@ -170,6 +170,8 @@ class MediaRepo(private val ctx: Context) {
 
     /** 先查磁盘缓存，没有才解码。version 是文件的修改时间，文件被编辑后缓存自然失效。 */
     fun thumbnail(kind: Kind, id: Long, version: Long, size: Int): ByteArray? {
+        // 权限收窄后，缓存不能绕过系统对这张照片的访问限制。
+        if (!MediaAccess.full(ctx, kind) && open(kind, id)?.use { true } != true) return null
         val file = File(thumbDir, "${kind.key}_${id}_${version}_$size.jpg")
         if (file.length() > 0) return file.readBytes()
         decodeSlots.acquire()
@@ -216,7 +218,7 @@ class MediaRepo(private val ctx: Context) {
     fun newImages(sinceSeconds: Long): List<NewImage> {
         val result = mutableListOf<NewImage>()
         cr.query(
-            Kind.IMAGE.uri, projection, "${MediaColumns.DATE_ADDED} >= ?", arrayOf(sinceSeconds.toString()),
+            Kind.IMAGE.uri, projection(Kind.IMAGE), "${MediaColumns.DATE_ADDED} >= ?", arrayOf(sinceSeconds.toString()),
             "${MediaColumns.DATE_ADDED} ASC",
         )?.use { c ->
             while (c.moveToNext()) {

@@ -4,11 +4,12 @@ import SwiftUI
 
 /// 手机相册：照片 / 视频按日期分组成网格，音频是列表。
 ///
-/// 交互：左键单击弹出操作菜单；⌘ 单击加选 / 取消，⇧ 单击连续选择；拖动框选；点空白处、Esc 取消；⌘A 全选。
-/// 选中多项时点其中一张，菜单作用于全部选中项。右键菜单同样可用。
+/// 交互：单击选中，双击或空格打开；⌘ 单击加选 / 取消，⇧ 单击连续选择；拖动框选；点空白处、Esc 取消；⌘A 全选。
+/// 选中多项时右键点其中一张，菜单作用于全部选中项。
 struct GalleryView: View {
     @EnvironmentObject var link: LinkController
 
+    @FocusState private var gridFocused: Bool
     @State private var kind: MediaKind = .image
     @State private var items: [MediaItem] = []
     @State private var total = 0
@@ -99,7 +100,13 @@ struct GalleryView: View {
                                 .background(GeometryReader { g in
                                     Color.clear.preference(key: CellFrames.self, value: [item.id: g.frame(in: .named("grid"))])
                                 })
-                                .onTapGesture { click(item) }
+                                .onTapGesture(count: 2) {
+                                    gridFocused = true
+                                    selection = [item.id]
+                                    anchor = item.id
+                                    open(item)
+                                }
+                                .simultaneousGesture(TapGesture().onEnded { click(item) })
                                 .contextMenu { contextMenu(for: item) }
                         }
                     } header: {
@@ -143,6 +150,14 @@ struct GalleryView: View {
         .scrollEdgeEffectStyle(.soft, for: .top)
         .focusable()
         .focusEffectDisabled()
+        .focused($gridFocused)
+        .onKeyPress(.space, phases: .down) { press in
+            guard press.modifiers.isEmpty else { return .ignored }
+            let selected = items.filter { selection.contains($0.id) }
+            guard !selected.isEmpty else { return .ignored }
+            selected.prefix(10).forEach(open)
+            return .handled
+        }
         .onKeyPress(.escape) {
             selection.removeAll()
             return .handled
@@ -193,6 +208,7 @@ struct GalleryView: View {
     }
 
     private func click(_ item: MediaItem) {
+        gridFocused = true
         let mods = NSEvent.modifierFlags
         if mods.contains(.command) {
             if selection.contains(item.id) { selection.remove(item.id) } else { selection.insert(item.id) }
@@ -202,16 +218,15 @@ struct GalleryView: View {
                   let j = items.firstIndex(where: { $0.id == item.id }) {
             selection.formUnion(items[min(i, j)...max(i, j)].map(\.id))
         } else {
-            // 普通单击：点在已选中的多项里，菜单作用于全部选中项；否则只选这一张
-            if !selection.contains(item.id) { selection = [item.id] }
+            // 普通单击只选中；菜单留给右键，避免拦截后续双击和键盘操作。
+            selection = [item.id]
             anchor = item.id
-            showMenu(for: targets(for: item))
         }
     }
 
-    /// 右键、左键菜单作用的对象
+    /// 右键菜单作用的对象
     private func targets(for item: MediaItem) -> [MediaItem] {
-        selection.contains(item.id) ? items.filter { selection.contains($0.id) } : [item]
+        selection.count > 1 && selection.contains(item.id) ? items.filter { selection.contains($0.id) } : [item]
     }
 
     @ViewBuilder
@@ -246,16 +261,6 @@ struct GalleryView: View {
         return list
     }
 
-    /// 左键菜单：在鼠标位置弹出原生菜单
-    private func showMenu(for targets: [MediaItem]) {
-        let menu = NSMenu()
-        for a in actions(for: targets) {
-            if a.title == "删除" { menu.addItem(.separator()) }
-            menu.addItem(ClosureMenuItem(title: a.title, action: a.run))
-        }
-        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
-    }
-
     // MARK: - 按日期分组
 
     private struct DaySection {
@@ -282,7 +287,7 @@ struct GalleryView: View {
     }
 
     private static func date(_ item: MediaItem) -> Date {
-        Date(timeIntervalSince1970: TimeInterval(item.added ?? item.modified))
+        item.capturedDate
     }
 
     private static func dayTitle(_ item: MediaItem) -> String {
@@ -322,21 +327,40 @@ struct GalleryView: View {
     }
 
     private func show(_ snap: MediaLibrary.Snapshot?) {
-        let new = snap?.items ?? []
-        guard new != items || snap?.total != total else { return }
+        let new = link.library?.displayItems(snap) ?? snap?.items ?? []
         setItems(new, total: snap?.total ?? 0)
     }
 
     /// 列表只从这里改：顺带重新分组
     private func setItems(_ new: [MediaItem], total: Int) {
-        items = new
+        let ordered = kind == .audio ? new : new.sorted {
+            $0.capturedDate == $1.capturedDate ? $0.id > $1.id : $0.capturedDate > $1.capturedDate
+        }
+        guard ordered != items || self.total != total else { return }
+        items = ordered
         self.total = total
-        sections = kind == .audio ? [] : Self.group(new)
+        sections = kind == .audio ? [] : Self.group(ordered)
     }
 
     // MARK: - 操作
 
     private func open(_ item: MediaItem) {
+        if item.kind == .image {
+            Task {
+                do {
+                    let url = try await link.original(item)
+                    guard let preview = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Preview") else {
+                        message = "找不到 macOS 预览"
+                        return
+                    }
+                    _ = try await NSWorkspace.shared.open([url], withApplicationAt: preview,
+                                                          configuration: NSWorkspace.OpenConfiguration())
+                } catch {
+                    message = error.localizedDescription
+                }
+            }
+            return
+        }
         guard let c = link.client else { return }
         // 下载过的视频直接打开本地文件
         if item.kind == .video, let local = link.localCopy(item) {
@@ -539,7 +563,7 @@ struct AudioRow: View {
     }
 
     private var dateText: String {
-        Date(timeIntervalSince1970: TimeInterval(item.added ?? item.modified))
+        item.capturedDate
             .formatted(date: .abbreviated, time: .shortened)
     }
 }

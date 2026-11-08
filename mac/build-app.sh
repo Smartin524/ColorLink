@@ -23,5 +23,5 @@ echo "运行：open $(pwd)/$APP"
 
 # Keep the installed copy current after successful local builds.
 if [[ "${1:-}" == "--install" || -d "/Applications/ColorLink.app" ]]; then
-    bash "$(dirname "$0")/install-app.sh"
+    bash ./install-app.sh
 fi

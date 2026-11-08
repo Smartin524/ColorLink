@@ -20,8 +20,24 @@ public struct MediaItem: Codable, Hashable, Identifiable, Sendable {
     public let size: Int64
     /// 修改时间（秒）。和 id 一起唯一确定一张缩略图。
     public let modified: Int64
-    /// 加入相册的时间（秒），用来按日期分组
+    /// 加入当前手机媒体库的时间（秒），用于增量同步，不代表拍摄日期。
     public let added: Int64?
+    /// 原始拍摄时间（秒），来自手机的图片 / 视频元数据。
+    public private(set) var taken: Int64?
+
+    /// Apply locally recovered EXIF without changing server snapshots used by incremental sync.
+    public func recoveringCaptureDate(_ timestamp: Int64?) -> MediaItem {
+        guard (taken ?? 0) <= 0, let timestamp, timestamp > 0 else { return self }
+        var copy = self
+        copy.taken = timestamp
+        return copy
+    }
+
+    public var capturedDate: Date {
+        let candidates: [Int64?] = [taken, modified, added]
+        let timestamp: Int64 = candidates.compactMap { $0 }.first(where: { $0 > 0 }) ?? 0
+        return Date(timeIntervalSince1970: TimeInterval(timestamp))
+    }
     public let width: Int?
     public let height: Int?
     /// 毫秒
@@ -31,6 +47,8 @@ public struct MediaItem: Codable, Hashable, Identifiable, Sendable {
 }
 
 public struct MediaPage: Codable, Sendable {
+    /// 协议元数据变化也需要刷新旧列表，即使手机媒体库代数没有改变。
+    public let metadataVersion: Int?
     public let total: Int
     /// 手机媒体库的「代数」：有任何增删改就会变（旧版手机 / 模拟手机没有）
     public let generation: Int64?

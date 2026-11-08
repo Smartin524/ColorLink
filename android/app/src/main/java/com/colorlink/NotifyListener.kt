@@ -72,9 +72,16 @@ class NotifyListener : NotificationListenerService() {
             Settings.Secure.getString(ctx.contentResolver, "enabled_notification_listeners")
                 ?.contains(ctx.packageName) == true
 
-        /** 开关开着却没绑定时，请系统重新绑定。 */
+        /** 主动关闭连接时解绑，保留系统授予的通知使用权。 */
+        fun pause() {
+            instance?.requestUnbind()
+            instance = null
+            connected = false
+        }
+
+        /** 总开关和通知使用权都开启时，才恢复监听。 */
         fun rebindIfNeeded(ctx: Context) {
-            if (!connected && enabled(ctx)) {
+            if (Prefs.connectionEnabled(ctx) && !connected && enabled(ctx)) {
                 AppLog.i(TAG, "通知监听未绑定，请求系统重新绑定")
                 requestRebind(ComponentName(ctx, NotifyListener::class.java))
             }
@@ -82,6 +89,10 @@ class NotifyListener : NotificationListenerService() {
     }
 
     override fun onListenerConnected() {
+        if (!Prefs.connectionEnabled(this)) {
+            requestUnbind()
+            return
+        }
         connected = true
         instance = this
         AppLog.init(this)
@@ -97,7 +108,7 @@ class NotifyListener : NotificationListenerService() {
         connected = false
         instance = null
         AppLog.w(TAG, "通知监听被解绑，请求重新绑定")
-        requestRebind(ComponentName(this, NotifyListener::class.java))
+        if (Prefs.connectionEnabled(this)) requestRebind(ComponentName(this, NotifyListener::class.java))
         // 失去保活依靠，先用前台服务顶上
         LinkService.refresh(this)
     }
@@ -123,7 +134,7 @@ class NotifyListener : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        if (EventBus.count == 0) return
+        if (!Prefs.connectionEnabled(this) || EventBus.count == 0) return
         val pkg = sbn.packageName
         if (pkg in MUTED_PACKAGES || pkg == packageName || sbn.isOngoing) return
         val n = sbn.notification

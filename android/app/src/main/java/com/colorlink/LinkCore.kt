@@ -1,5 +1,6 @@
 package com.colorlink
 
+import android.app.Application
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -55,7 +56,7 @@ object LinkCore {
     @Volatile
     var macName: String? = null
 
-    private lateinit var app: Context
+    private lateinit var app: Application
     private val handler = Handler(Looper.getMainLooper())
     private var worker: ExecutorService = Executors.newSingleThreadExecutor()
     private lateinit var media: MediaRepo
@@ -78,8 +79,8 @@ object LinkCore {
     /** 重复调用没关系。 */
     @Synchronized
     fun start(ctx: Context) {
-        if (running) return
-        app = ctx.applicationContext
+        if (running || !Prefs.connectionEnabled(ctx)) return
+        app = ctx.applicationContext as Application
         AppLog.init(app)
         // 把系统记录的最近几次退出原因写进日志，事后能看出是被谁、因为什么结束的
         ColorOS.recentExits(app, 3).forEach {
@@ -98,6 +99,7 @@ object LinkCore {
         EventBus.onSubscribersChanged = { n ->
             AppLog.i(TAG, if (n > 0) "Mac 已连接（${macName ?: "?"}，共 $n 个连接）" else "Mac 已断开")
             handler.post {
+                if (!running) return@post
                 val now = SystemClock.elapsedRealtime()
                 // 从没连接到连上：弹一下流体云，到时间自动收起。
                 // 刚断开不到 1 分钟又连上的（网络抖一下、Mac 重连）不算新连接，不弹
@@ -145,7 +147,11 @@ object LinkCore {
         server = null
         worker.shutdownNow()
         activeTransfers = 0
-        handler.removeCallbacks(idleRelease)
+        handler.removeCallbacksAndMessages(null)
+        lastKnockAt = -30_000L
+        lastSubscribers = 0
+        announceUntil = 0
+        macName = null
         releaseLocks()
         AppLog.i(TAG, "核心已停止")
     }
@@ -159,6 +165,7 @@ object LinkCore {
 
     private fun transferStarted() {
         handler.post {
+            if (!running) return@post
             activeTransfers++
             handler.removeCallbacks(idleRelease)
             acquireLocks()
@@ -168,6 +175,7 @@ object LinkCore {
     /** 响应（包括原文件的整个流）写完才算结束。连着来的缩略图请求之间不释放，免得锁反复开关 */
     private fun transferFinished() {
         handler.post {
+            if (!running) return@post
             activeTransfers = (activeTransfers - 1).coerceAtLeast(0)
             if (activeTransfers == 0) handler.postDelayed(idleRelease, 3_000)
         }
@@ -247,6 +255,7 @@ object LinkCore {
                     return
                 }
                 handler.postDelayed({
+                    if (!running) return@postDelayed
                     unregisterNsd()
                     registerNsd()
                     // 换了网络，旧连接都已失效，不管当前有没有 Mac 连着都敲门
@@ -300,6 +309,7 @@ object LinkCore {
     // region 新照片 / 截图监听
 
     private val checkNewImages = Runnable {
+        if (!running) return@Runnable
         worker.execute {
             if (EventBus.count == 0) return@execute
             for (img in media.newImages(lastImageAdded)) {
@@ -345,6 +355,7 @@ object LinkCore {
      */
     private val powerReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
+            if (!running) return
             val charging = intent.action == Intent.ACTION_POWER_CONNECTED
             if (EventBus.count > 0) {
                 val battery = app.getSystemService(BatteryManager::class.java)

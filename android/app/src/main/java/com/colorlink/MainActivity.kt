@@ -11,7 +11,6 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.provider.MediaStore
-import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -63,6 +62,8 @@ class MainActivity : Activity() {
     private var touchDownY = 0f
     /** 这次触摸还能触发收起 / 展开（每次按下只触发一次） */
     private var swipeArmed = false
+    private lateinit var connectionSwitch: Switch
+    private lateinit var keepAliveSwitch: Switch
     private lateinit var runText: TextView
     private lateinit var codeText: TextView
     /** 运行条件：只显示不满足的项，全部满足时整块隐藏 */
@@ -86,7 +87,7 @@ class MainActivity : Activity() {
     private val secondary by lazy { if (night) 0xFF8E8E93.toInt() else 0xFF6B6B70.toInt() }
     private val divider by lazy { if (night) 0xFF2C2C2E.toInt() else 0xFFE5E5EA.toInt() }
     private val accent by lazy {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) getColor(android.R.color.system_accent1_500) else 0xFF0A84FF.toInt()
+        getColor(android.R.color.system_accent1_500)
     }
     private val green = 0xFF34C759.toInt()
     private val red = 0xFFFF453A.toInt()
@@ -99,7 +100,7 @@ class MainActivity : Activity() {
         actionBar?.hide()
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !night) {
+        if (!night) {
             window.insetsController?.setSystemBarsAppearance(
                 WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
                 WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
@@ -110,6 +111,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), 0, dp(16), dp(24))
         }
+        root.addView(connectionCard())
         codeCard = codeCard()
         root.addView(codeCard)
         conditionsTitle = sectionTitle("需要处理")
@@ -189,10 +191,7 @@ class MainActivity : Activity() {
     }
 
     private fun startAll() {
-        LinkCore.start(this)
-        LinkService.refresh(this)
-        BleWake.update(this)
-        NotifyListener.rebindIfNeeded(this)
+        ConnectionControl.refresh(this)
     }
 
     // region 卡片
@@ -330,7 +329,7 @@ class MainActivity : Activity() {
     }
 
     private fun conditionsCard() = card(padding = 0).apply {
-        auto("media", "照片与视频", { granted(mediaPermission()) }) { requestRuntimePermissions() }
+        auto("media", "照片与视频", { MediaAccess.fullVisual(this@MainActivity) }) { requestRuntimePermissions() }
         auto("manageMedia", "媒体管理", { MediaStore.canManageMedia(this@MainActivity) }) {
             startActivity(Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA, Uri.parse("package:$packageName")))
         }
@@ -348,6 +347,36 @@ class MainActivity : Activity() {
         manual("wifi", "WLAN 不自动切换流量") { ColorOS.openWifiSettings(this@MainActivity) }
     }
 
+    /** 两个开关共用 Logo 蓝色，保留系统控件的交互与无障碍行为。 */
+    private fun brandSwitch() = Switch(this).apply {
+        val states = arrayOf(
+            intArrayOf(-android.R.attr.state_enabled, android.R.attr.state_checked),
+            intArrayOf(-android.R.attr.state_enabled),
+            intArrayOf(android.R.attr.state_checked),
+            intArrayOf(),
+        )
+        thumbTintList = android.content.res.ColorStateList(states, intArrayOf(
+            0x66006DFF, 0x668E8E93, 0xFF006DFF.toInt(), if (night) 0xFFAEAEB2.toInt() else Color.WHITE,
+        ))
+        trackTintList = android.content.res.ColorStateList(states, intArrayOf(
+            0x33006DFF, 0x338E8E93, 0x66006DFF, if (night) 0xFF48484A.toInt() else 0xFFD1D1D6.toInt(),
+        ))
+    }
+
+    private fun connectionCard() = card(padding = 0).apply {
+        connectionSwitch = brandSwitch().apply {
+            contentDescription = "连接 Mac"
+            isChecked = Prefs.connectionEnabled(context)
+            setOnCheckedChangeListener { _, on ->
+                if (on != Prefs.connectionEnabled(this@MainActivity)) {
+                    ConnectionControl.setEnabled(this@MainActivity, on)
+                    refresh()
+                }
+            }
+        }
+        addView(row("连接 Mac", trailing = connectionSwitch) { connectionSwitch.toggle() })
+    }
+
     private fun settingsCard() = card(padding = 0).apply {
         runText = label("", 14f, secondary).apply {
             maxLines = 1
@@ -357,7 +386,8 @@ class MainActivity : Activity() {
         }
         addView(row("状态", trailing = runText))
         addView(separator())
-        addView(row("空闲保活", trailing = Switch(context).apply {
+        addView(row("空闲保活", trailing = brandSwitch().apply {
+            keepAliveSwitch = this
             isChecked = Prefs.keepAlive(this@MainActivity)
             setOnCheckedChangeListener { _, on ->
                 Prefs.setKeepAlive(this@MainActivity, on)
@@ -366,6 +396,10 @@ class MainActivity : Activity() {
         }))
         addView(separator())
         addView(row("配对新电脑", titleColor = accent) {
+            if (!Prefs.connectionEnabled(this@MainActivity)) {
+                toast("请先打开连接 Mac")
+                return@row
+            }
             showCode = !showCode
             refresh()
         }.also { pairRowTitle = it.getChildAt(0) as TextView })
@@ -381,9 +415,12 @@ class MainActivity : Activity() {
     // region 刷新
 
     private fun refresh() {
-        val connected = EventBus.count > 0
-        val running = LinkCore.running
-        statusDot.background = dot(if (connected) green else if (running) secondary else red, size = 10)
+        val enabled = Prefs.connectionEnabled(this)
+        connectionSwitch.isChecked = enabled
+        keepAliveSwitch.isEnabled = enabled
+        val connected = enabled && EventBus.count > 0
+        val running = enabled && LinkCore.running
+        statusDot.background = dot(if (connected) green else if (running || !enabled) secondary else red, size = 10)
         // 连上时链环长出并扣合；断开时解扣分开；没连接时是分开的灰色链环
         // 只在状态真正变化时播放一次；刚打开页面时直接显示当前状态
         if (connected != logoConnected) {
@@ -397,6 +434,7 @@ class MainActivity : Activity() {
             }
         }
         statusDot.contentDescription = when {
+            !enabled -> "连接已关闭"
             connected -> "已连接 ${LinkCore.macName ?: "Mac"}"
             running -> "待命中"
             else -> "未运行"
@@ -404,6 +442,7 @@ class MainActivity : Activity() {
         runText.text = buildString {
             append(
                 when {
+                    !enabled -> "已关闭"
                     connected -> LinkCore.macName ?: "已连接"
                     running -> "待命中"
                     else -> "未运行"
@@ -413,13 +452,18 @@ class MainActivity : Activity() {
         }
         // 配对码：从没配对过就一直显示；配对过之后点「配对新电脑」才显示
         val code = Prefs.pairCode(this)
-        codeText.text = "${code.take(3)} ${code.drop(3)}"
+        codeText.text = getString(R.string.pair_code, code.take(3), code.drop(3))
         val paired = Prefs.paired(this)
-        codeCard.visibility = if (!paired || showCode) View.VISIBLE else View.GONE
+        codeCard.visibility = if (enabled && (!paired || showCode)) View.VISIBLE else View.GONE
         pairRowTitle.text = if (paired && showCode) "收起配对码" else "配对新电脑"
 
         // 运行条件：只列出不满足的；集合变了才重排，避免每秒重建
-        val pending = conditions.filter { !it.ok() }
+        conditions.firstOrNull { it.key == "media" }?.let { condition ->
+            val title = (condition.view as LinearLayout).getChildAt(0) as TextView
+            title.text = if (granted(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED))
+                "照片与视频（仅部分可见，点此更改）" else "照片与视频（允许全部以自动同步）"
+        }
+        val pending = conditions.filter { enabled && !it.ok() }
         val keys = pending.map { it.key }
         if (keys != shownConditions) {
             shownConditions = keys
@@ -530,28 +574,19 @@ class MainActivity : Activity() {
 
     // region 权限
 
-    private fun mediaPermission() =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_IMAGES
-        else Manifest.permission.READ_EXTERNAL_STORAGE
-
     private fun granted(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
 
     private fun ignoringBattery() = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
 
     private fun requestRuntimePermissions() {
-        val perms = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            perms += listOf(
-                Manifest.permission.READ_MEDIA_IMAGES,
-                Manifest.permission.READ_MEDIA_VIDEO,
-                Manifest.permission.READ_MEDIA_AUDIO,
-                Manifest.permission.POST_NOTIFICATIONS,
-            )
-        } else {
-            perms += Manifest.permission.READ_EXTERNAL_STORAGE
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) perms += Manifest.permission.BLUETOOTH_SCAN
-        requestPermissions(perms.toTypedArray(), 1)
+        requestPermissions(arrayOf(
+            Manifest.permission.READ_MEDIA_IMAGES,
+            Manifest.permission.READ_MEDIA_VIDEO,
+            Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+            Manifest.permission.READ_MEDIA_AUDIO,
+            Manifest.permission.POST_NOTIFICATIONS,
+            Manifest.permission.BLUETOOTH_SCAN,
+        ), 1)
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {

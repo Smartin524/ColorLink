@@ -2,7 +2,7 @@ import ColorLinkCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// 状态栏面板，只有两块：顶部的连接状态，下面的照片区（最近三张，悬停：上半下载、下半复制）。
+/// 状态栏面板：顶部连接状态与小按钮，下方照片区（最近三张，悬停：上半下载、下半复制）。
 /// 拖文件时整个面板都是放置区，松手就发给手机。
 /// 不常用的开关和操作收在右上角「⋯」菜单里。
 struct PanelView: View {
@@ -73,11 +73,14 @@ struct PanelView: View {
                 .frame(width: 20)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.subheadline.weight(.semibold)).lineLimit(1)
-                Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                if let subtitle {
+                    Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
             Spacer(minLength: 4)
             if !ui.dropMode {
                 if link.isConnected {
+                    dndButton
                     Button {
                         close()
                         Windows.shared.showGallery()
@@ -85,11 +88,11 @@ struct PanelView: View {
                         Image(systemName: "photo.on.rectangle")
                             .font(.system(size: 10, weight: .medium))
                             .frame(width: 22, height: 22)
+                            .contentShape(Circle())
                             .glassEffect(.regular.interactive(), in: .circle)
                     }
                     .buttonStyle(.plain)
                     .help("打开相册")
-                    dndButton
                 }
                 moreMenu
             }
@@ -107,6 +110,7 @@ struct PanelView: View {
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(on ? Color.accentColor : .primary)
                 .frame(width: 22, height: 22)
+                .contentShape(Circle())
                 .glassEffect(.regular.interactive(), in: .circle)
         }
         .buttonStyle(.plain)
@@ -115,13 +119,15 @@ struct PanelView: View {
         .help(mode.map { $0.isOn ? "免打扰：\($0.title)" : "免打扰" } ?? "需要手机开通知使用权")
     }
 
-    /// 「⋯」：和相册按钮同款的玻璃圆形按钮，点击弹出系统原生菜单
+    /// 「⋯」：圆形区域整体可点击，避免 plain 按钮只有中间的符号响应。
+    /// 和相册按钮同款的玻璃圆形按钮，点击弹出系统原生菜单
     /// （SwiftUI 的 Menu 会剥掉标签上的玻璃效果，所以不用它）
     private var moreMenu: some View {
         Button(action: showMoreMenu) {
             Image(systemName: "ellipsis")
                 .font(.system(size: 10, weight: .medium))
                 .frame(width: 22, height: 22)
+                .contentShape(Circle())
                 .glassEffect(.regular.interactive(), in: .circle)
         }
         .buttonStyle(.plain)
@@ -153,29 +159,19 @@ struct PanelView: View {
     }
 
     private var title: String {
-        if link.phoneAppDown, !link.isConnected { return "手机上的 ColorLink 没在运行" }
-        return switch link.state {
-        case .searching: "未连接"
-        case .needsPairing(let n): "发现「\(n)」"
-        case .connecting(let n): "正在连接「\(n)」"
-        case .connected(let n): n
-        case .retrying(let n, _): "「\(n)」已断开"
-        case .paused: "未连接"
+        switch link.state {
+        case .searching, .retrying: "手机未连接"
+        case .needsPairing: "待配对"
+        case .connecting: "正在连接"
+        case .connected(let name): name.contains("Find X9 Ultra") ? "Find X9 Ultra" : name
+        case .paused: "已暂停"
         }
     }
 
-    private var subtitle: String {
-        if link.phoneAppDown, !link.isConnected { return "在手机上打开一下即可" }
-        switch link.state {
-        case .searching: return "手机和 Mac 连同一个 Wi-Fi 即可"
-        case .needsPairing: return "点「⋯」→ 配对手机"
-        case .connecting: return "马上就好"
-        case .connected:
-            guard let i = link.info, let b = i.battery else { return "已连接" }
-            return "已连接 · \(b)%\(i.charging == true ? " · 充电中" : "")"
-        case .retrying: return "自动重连中…"
-        case .paused: return "锁屏时暂停连接"
-        }
+    /// 只显示连接后的电量，不在状态下面重复解释操作步骤。
+    private var subtitle: String? {
+        guard link.isConnected, let info = link.info, let battery = info.battery else { return nil }
+        return "\(battery)%\(info.charging == true ? " · 充电中" : "")"
     }
 }
 

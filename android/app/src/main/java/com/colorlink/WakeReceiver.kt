@@ -11,6 +11,7 @@ private const val TAG = "ColorLink.Wake"
 /** 所有“把 App 拉起来”的入口：开机、App 更新、蓝牙扫到 Mac。 */
 class WakeReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
+        if (!Prefs.connectionEnabled(ctx)) return
         AppLog.init(ctx)
         AppLog.i(TAG, "收到广播 ${intent.action}")
         when (intent.action) {

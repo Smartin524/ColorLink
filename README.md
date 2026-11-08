@@ -1,5 +1,7 @@
 # ColorLink 雏形
 
+Android 端最低支持 Android 14（API 34），面向自用手机，不兼容更旧系统。
+
 在同一个局域网（或 Mac 连着手机热点）里，让 Mac 无感地连上 OPPO 手机：
 
 - 浏览手机的照片、视频、录音；状态栏面板里有最近三张照片，点一下复制原图
@@ -38,6 +40,12 @@ ColorLink/
 - **手机热点**：Mac 和手机之间的流量不出手机，不耗流量。敲门会向所有局域网网卡（包括热点）广播，开关热点时也会敲门。
 - **缩略图先查缓存**：手机充电时提前生成；Mac 端有内存和磁盘两级缓存，同一张图同时被请求多次也只发一次网络请求。
 - **省电**：手机只在传输（列表、缩略图、原文件、收发文件）期间持有 Wi-Fi 锁和唤醒锁，传完 3 秒后释放；探活和事件流不持锁。通知、截图、充电状态都是手机有事件时推给 Mac，Mac 不定时来问，手机深睡时不会被叫醒。
+
+## 暂停连接
+
+手机上划进入设置，顶部「连接 Mac」是总开关。旅行时关闭即可暂停网络连接、照片与通知同步、蓝牙唤醒和定时保活；配对、权限及空闲保活偏好保留。重新打开后自动恢复连接。开关关闭期间，重启手机、更新 App 或从分享菜单进入均不会自动恢复连接。
+
+Mac 面板顶部保留原有小圆形按钮，从左到右为「免打扰」「图库」「更多」；免打扰开启时以实心月亮和强调色显示。
 
 ## ColorOS 专项优化
 
@@ -179,3 +187,25 @@ adb logcat -s ColorLink.Core ColorLink.Service ColorLink.Notify ColorLink.Http C
 ### 本机安装与更新
 
 应用安装在 `/Applications/ColorLink.app`。运行原构建脚本后，若应用已安装，将自动更新该位置；首次安装可向构建脚本传入 `--install`，或在已有构建产物时执行 `./install-app.sh`。应用标识和用户设置保留；运行中的旧版本需退出并重新打开。
+
+## Android 检查说明
+
+- 照片与视频分别检查完整读取权限；仅授权选中媒体时保留可见范围，并在设置中提供重新选择入口。自动同步新截图需要完整照片权限。
+- 部分授权的列表不复用媒体库代数缓存；读取缩略图缓存前确认当前仍有原文件访问权。
+- 配对令牌、设备身份和本地数据明确排除云备份与换机迁移。
+- 唯一局部 Lint 忽略是 `stopService` 的 `ImplicitSamInstance` 误报：显式 Intent 按组件匹配，不依赖对象实例身份。
+- 保留 `OldTargetApi` 提示：目前 targetSdk 35。提高 targetSdk 会改变系统运行规则，需要另做真机回归；不会仅为消除提示而升级。
+
+参考：[Android 部分照片授权](https://developer.android.com/about/versions/14/changes/partial-photo-video-access)、[备份规则](https://developer.android.com/identity/data/autobackup)、[stopService 契约](https://developer.android.com/reference/android/content/Context#stopService(android.content.Intent))。
+
+## 相册日期
+
+照片和视频按原始拍摄时间分组、倒序展示；缺失时依次回退到文件修改时间、导入时间。Android 从 MediaStore 的 DATE_TAKEN 读取拍摄时间并将毫秒转换为协议使用的秒；DATE_ADDED 仍只用于新增媒体检测和分页同步。新版通过 metadataVersion 触发旧列表完整刷新，不删除缩略图或修改手机原文件。参考：[Android 媒体日期字段](https://developer.android.com/reference/android/provider/MediaStore.MediaColumns#DATE_TAKEN)。
+
+### 旧照片的日期归属
+
+Mac 图库优先使用手机媒体索引的拍摄日期。蓝牙导入可能保留原图 EXIF，但没有填入媒体索引的 `DATE_TAKEN`；这种情况下 Mac 会读取原文件最多 256 KiB 的头部，补取 EXIF 原始拍摄时间（其次为数字化时间）。恢复的日期按设备、媒体 ID 和修改时间单独缓存，不改变原文件，也不影响按导入顺序进行的增量同步。缺少原始日期或元数据不在探测范围内时，仍回退到修改时间 / 导入时间。
+
+### Mac 图库操作
+
+单击切换选中项，⌘ / ⇧ 可多选，右键显示操作菜单。双击图片或选中后按空格，使用 macOS「预览」打开原图；图片窗口由「预览」管理。手机截图成功写入 Mac 剪贴板后显示「截图已复制」通知，需要在系统设置中允许 ColorLink 通知。

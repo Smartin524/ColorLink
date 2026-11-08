@@ -10,6 +10,7 @@ import Foundation
 @MainActor
 final class MediaLibrary: ObservableObject {
     struct Snapshot: Codable, Sendable {
+        var metadataVersion: Int?
         var generation: Int64?
         var total: Int
         var items: [MediaItem]
@@ -22,8 +23,21 @@ final class MediaLibrary: ObservableObject {
     @Published private(set) var syncing: Set<MediaKind> = []
     private var running: [MediaKind: Task<Void, Never>] = [:]
 
+    // Separate from raw snapshots so EXIF recovery cannot break incremental comparisons.
+    private var captureDates: [String: Int64] = [:]
+    private var checkedHeaders = Set<String>()
+    private var captureDatesFile: URL { AppDirs.library(deviceId).appendingPathComponent("capture-dates-v1.json") }
+
+    func displayItems(_ snapshot: Snapshot?) -> [MediaItem] {
+        (snapshot?.items ?? []).map { $0.recoveringCaptureDate(captureDates[$0.cacheKey]) }
+    }
+
     init(deviceId: String) {
         self.deviceId = deviceId
+        if let data = try? Data(contentsOf: captureDatesFile),
+           let dates = try? JSONDecoder().decode([String: Int64].self, from: data) {
+            captureDates = dates
+        }
         for kind in MediaKind.allCases {
             if let data = try? Data(contentsOf: file(kind)),
                let snap = try? JSONDecoder().decode(Snapshot.self, from: data) {
@@ -42,12 +56,55 @@ final class MediaLibrary: ObservableObject {
             await t.value
             return
         }
-        let t = Task { await self.doSync(kind, client) }
+        let t = Task {
+            await self.doSync(kind, client)
+            if kind == .image { await self.recoverCaptureDates(client) }
+        }
         running[kind] = t
         syncing.insert(kind)
         await t.value
         running[kind] = nil
         syncing.remove(kind)
+    }
+
+    /// Old Bluetooth imports can retain EXIF even when MediaStore has no DATE_TAKEN.
+    private func recoverCaptureDates(_ client: PhoneClient) async {
+        let missing = (lists[.image]?.items ?? []).filter {
+            ($0.taken ?? 0) <= 0 && captureDates[$0.cacheKey] == nil && !checkedHeaders.contains($0.cacheKey)
+        }
+        var recovered = 0
+        for (index, item) in missing.enumerated() {
+            guard !Task.isCancelled else { break }
+            do {
+                let data = try await client.captureDateHeader(item)
+                let timestamp = ImageCaptureDate.read(data)
+                checkedHeaders.insert(item.cacheKey)
+                if let timestamp {
+                    captureDates[item.cacheKey] = timestamp
+                    recovered += 1
+                } else if Int64(data.count) == item.size {
+                    // Only persist a negative result when the whole file was inspected.
+                    captureDates[item.cacheKey] = 0
+                }
+            } catch {
+                // Retry next sync after connectivity/permission recovers, rather than timing out per photo.
+                break
+            }
+            if index % 20 == 0 { publishCaptureDates() }
+        }
+        if !missing.isEmpty { publishCaptureDates() }
+        if recovered > 0 { AppLog.write("从原图 EXIF 恢复拍摄日期：\(recovered) 项") }
+    }
+
+    private func publishCaptureDates() {
+        let current = lists
+        lists = current
+        do {
+            try FileManager.default.createDirectory(at: captureDatesFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try JSONEncoder().encode(captureDates).write(to: captureDatesFile, options: .atomic)
+        } catch {
+            AppLog.write("保存拍摄日期缓存失败：\(error)")
+        }
     }
 
     /// 在 Mac 上删掉（移到手机的「最近删除」）后，本地列表同步去掉
@@ -62,16 +119,16 @@ final class MediaLibrary: ObservableObject {
     private func doSync(_ kind: MediaKind, _ c: PhoneClient) async {
         do {
             let first = try await c.media(kind: kind, offset: 0, limit: 200)
-            if let cached = lists[kind], cached.complete, cached.total == first.total {
+            if let cached = lists[kind], cached.complete, cached.metadataVersion == first.metadataVersion, cached.total == first.total {
                 let sameGeneration = first.generation != nil && first.generation == cached.generation
                 // 旧版手机没有代数：第一页完全一样就当没变
                 let sameHead = first.generation == nil && Array(cached.items.prefix(first.items.count)) == first.items
                 if sameGeneration || sameHead { return }
             }
-            if let cached = lists[kind], cached.complete,
+            if let cached = lists[kind], cached.complete, cached.metadataVersion == first.metadataVersion,
                let merged = await mergeHead(kind, first, cached, c) {
                 let added = merged.count - cached.items.count
-                set(kind, Snapshot(generation: first.generation, total: first.total, items: merged, complete: true))
+                set(kind, Snapshot(metadataVersion: first.metadataVersion, generation: first.generation, total: first.total, items: merged, complete: true))
                 if added > 0 { AppLog.write("\(kind.title)列表：新增 \(added) 项") }
                 return
             }
@@ -103,17 +160,17 @@ final class MediaLibrary: ObservableObject {
     private func fullSync(_ kind: MediaKind, _ first: MediaPage, _ c: PhoneClient) async throws {
         let progressive = lists[kind]?.complete != true
         var items = first.items
-        if progressive { set(kind, Snapshot(generation: nil, total: first.total, items: items, complete: false), save: false) }
+        if progressive { set(kind, Snapshot(metadataVersion: first.metadataVersion, generation: nil, total: first.total, items: items, complete: false), save: false) }
         while items.count < first.total {
             let page = try await c.media(kind: kind, offset: items.count, limit: 500)
             if page.items.isEmpty { break }
             items += page.items
-            if progressive { set(kind, Snapshot(generation: nil, total: first.total, items: items, complete: false), save: false) }
+            if progressive { set(kind, Snapshot(metadataVersion: first.metadataVersion, generation: nil, total: first.total, items: items, complete: false), save: false) }
         }
         // 拉的过程中手机上新增了照片，分页会错位出重复，按 ID 去重
         var seen = Set<MediaItem.ID>()
         items = items.filter { seen.insert($0.id).inserted }
-        set(kind, Snapshot(generation: first.generation, total: items.count, items: items, complete: true))
+        set(kind, Snapshot(metadataVersion: first.metadataVersion, generation: first.generation, total: items.count, items: items, complete: true))
         AppLog.write("\(kind.title)列表完整同步：\(items.count) 项")
     }
 

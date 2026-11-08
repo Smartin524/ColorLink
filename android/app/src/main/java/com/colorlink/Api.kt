@@ -27,6 +27,7 @@ class Api(
     private var failedPairs = 0
 
     fun handle(req: Request): Response {
+        if (!Prefs.connectionEnabled(ctx)) return Response.text(503, "connection disabled")
         if (req.path == "/api/pair") return pair(req)
         if (req.path == "/api/logs") {
             return if (authorized(req)) Response.bytes(AppLog.dump().toByteArray(), "text/plain; charset=utf-8")
