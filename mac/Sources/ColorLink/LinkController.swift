@@ -247,6 +247,8 @@ final class LinkController: ObservableObject {
             let c = PhoneClient(endpoint: endpoint, token: paired.token)
             do {
                 let info = try await c.info(timeout: 4)
+                // 连接途中锁屏 / 睡眠：那时还没有事件流可断，这里不接着连，回到循环开头进入暂停
+                if paused { continue }
                 var p = paired
                 p.lastEndpoint = endpoint
                 p.name = info.name

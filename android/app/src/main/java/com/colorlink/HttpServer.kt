@@ -129,9 +129,10 @@ class HttpServer(private val handler: (Request) -> Response) {
                         AppLog.w(TAG, "处理 ${req.path} 出错", e)
                         Response.text(500, e.toString())
                     }
-                    // 读掉没用完的请求体，保证 keep-alive 下一个请求能对齐
-                    (req.body as BoundedInputStream).drain()
                     val reusable = try {
+                        // 读掉没用完的请求体，保证 keep-alive 下一个请求能对齐。
+                        // 放在 try 里：对方中途断开时这里会抛错，传输计时也要照常结束，否则锁一直不放
+                        (req.body as BoundedInputStream).drain()
                         write(input, output, req, resp)
                     } finally {
                         resp.onDone?.invoke()

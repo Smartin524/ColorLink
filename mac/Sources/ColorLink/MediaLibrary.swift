@@ -82,8 +82,10 @@ final class MediaLibrary: ObservableObject {
                 if let timestamp {
                     captureDates[item.cacheKey] = timestamp
                     recovered += 1
-                } else if Int64(data.count) == item.size {
-                    // Only persist a negative result when the whole file was inspected.
+                } else if Int64(data.count) == item.size || Self.metadataAtStart(item.name) {
+                    // 「没有拍摄日期」只在确定看全了才记下，免得每次启动都再读一遍：整个文件都读过，
+                    // 或者格式规定元数据在文件开头（JPEG 的 EXIF 段紧跟文件头，PNG 的 eXIf 在图像数据之前）。
+                    // HEIC 的 EXIF 可能放在文件靠后的位置，读不全时不下结论
                     captureDates[item.cacheKey] = 0
                 }
             } catch {
@@ -94,6 +96,10 @@ final class MediaLibrary: ObservableObject {
         }
         if !missing.isEmpty { publishCaptureDates() }
         if recovered > 0 { AppLog.write("从原图 EXIF 恢复拍摄日期：\(recovered) 项") }
+    }
+
+    private static func metadataAtStart(_ name: String) -> Bool {
+        ["jpg", "jpeg", "png"].contains((name as NSString).pathExtension.lowercased())
     }
 
     private func publishCaptureDates() {
