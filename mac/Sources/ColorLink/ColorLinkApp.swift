@@ -25,10 +25,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusBar = StatusBarController(link: link)
         if !LinkController.demo { LoginItem.enableOnFirstRun() }
 
-        // 调试用：带 --show-panel / --show-drop / --show-gallery 启动时自动打开对应界面，方便截图核对
+        // 调试用：带 --show-panel / --show-drop / --show-gallery / --play <文件> 启动时自动打开对应界面，方便截图核对
         let args = CommandLine.arguments
         if args.contains("--show-gallery") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { Windows.shared.showGallery() }
+        }
+        if let i = args.firstIndex(of: "--play"), i + 1 < args.count {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { Windows.shared.openPlayer(URL(fileURLWithPath: args[i + 1])) }
         }
         if args.contains("--show-panel") || args.contains("--show-drop") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [statusBar] in
@@ -66,7 +69,7 @@ final class Windows {
 
     func openPlayer(_ url: URL) {
         _ = show(nil, title: "视频", size: NSSize(width: 720, height: 460), resizable: true) {
-            VideoPlayer(player: AVPlayer(url: url))
+            PlayerView(url: url)
         }
     }
 
@@ -105,6 +108,26 @@ final class Windows {
         w.makeKeyAndOrderFront(nil)
         NSApp.activate()
         return w
+    }
+}
+
+/// SwiftUI 的 VideoPlayer 放进带 sceneBridgingOptions 的窗口里，一显示就崩（macOS 27.2，_AVKit_SwiftUI 初始化类型失败），
+/// 所以直接包一层 AppKit 的 AVPlayerView。打开就播，关窗口时停下
+private struct PlayerView: NSViewRepresentable {
+    let url: URL
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.player = AVPlayer(url: url)
+        view.player?.play()
+        return view
+    }
+
+    func updateNSView(_ view: AVPlayerView, context: Context) {}
+
+    static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) {
+        view.player?.pause()
+        view.player = nil
     }
 }
 
