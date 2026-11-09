@@ -24,7 +24,7 @@ public struct PhoneEndpoint: Codable, Hashable, Sendable, CustomStringConvertibl
 
     public var baseURL: URL {
         let h = host.contains(":") ? "[\(host)]" : host
-        return URL(string: "http://\(h):\(port)/")!
+        return URL(string: "https://\(h):\(port)/")!
     }
 
     public var description: String { "\(host):\(port)" }
@@ -36,25 +36,29 @@ public final class PhoneClient: @unchecked Sendable {
     public let token: String
     /// 告诉手机这台电脑叫什么，显示在流体云里
     public let clientName: String
+    /// 手机证书的指纹核对，见 CertPin
+    public let pin: CertPin
     private let session: URLSession
     private let eventSession: URLSession
 
-    public init(endpoint: PhoneEndpoint, token: String, clientName: String = Host.current().localizedName ?? "Mac") {
+    /// certSHA256 为 nil（升级前配的对）时接受任何证书，连上后由调用方把 pin.seen 存起来
+    public init(endpoint: PhoneEndpoint, token: String, certSHA256: String?, clientName: String = Host.current().localizedName ?? "Mac") {
         self.endpoint = endpoint
         self.token = token
         self.clientName = clientName
+        pin = CertPin(certSHA256)
 
         let cfg = URLSessionConfiguration.ephemeral
         cfg.httpMaximumConnectionsPerHost = 6 // 缩略图并发拉取
         cfg.timeoutIntervalForRequest = 15
         cfg.urlCache = nil // 缩略图有自己的磁盘缓存
-        session = URLSession(configuration: cfg)
+        session = URLSession(configuration: cfg, delegate: pin, delegateQueue: nil)
 
         let ev = URLSessionConfiguration.ephemeral
         // 断线由 events() 自己判断：手机深睡时 ping 会停，单靠超时会反复误判断线
         ev.timeoutIntervalForRequest = 7 * 24 * 3600
         ev.timeoutIntervalForResource = 7 * 24 * 3600
-        eventSession = URLSession(configuration: ev)
+        eventSession = URLSession(configuration: ev, delegate: pin, delegateQueue: nil)
     }
 
     deinit {
@@ -64,14 +68,20 @@ public final class PhoneClient: @unchecked Sendable {
 
     // MARK: - 配对
 
-    public static func pair(endpoint: PhoneEndpoint, code: String, clientName: String) async throws -> PairResult {
+    /// 配对；返回结果和这次握手看到的证书指纹（以后只认它）
+    public static func pair(endpoint: PhoneEndpoint, code: String, clientName: String) async throws -> (PairResult, cert: String) {
         var comps = URLComponents(url: endpoint.baseURL.appendingPathComponent("api/pair"), resolvingAgainstBaseURL: false)!
         comps.queryItems = [URLQueryItem(name: "code", value: code), URLQueryItem(name: "client", value: clientName)]
         var req = URLRequest(url: comps.url!)
         req.timeoutInterval = 8
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let pin = CertPin(nil)
+        let session = URLSession(configuration: .ephemeral, delegate: pin, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+        let (data, resp) = try await session.data(for: req)
         switch (resp as? HTTPURLResponse)?.statusCode ?? 0 {
-        case 200: return try JSONDecoder().decode(PairResult.self, from: data)
+        case 200:
+            guard let cert = pin.seen else { throw PhoneError.http(0) }
+            return (try JSONDecoder().decode(PairResult.self, from: data), cert)
         case 403: throw PhoneError.badPairingCode
         case let code: throw PhoneError.http(code)
         }
@@ -79,21 +89,23 @@ public final class PhoneClient: @unchecked Sendable {
 
     /// 不带令牌问一下这个地址上是哪台手机；对不上（或根本不是 ColorLink）就返回 nil。
     /// 用来在发令牌之前确认身份，避免把令牌发给同一 IP 上的别的设备（换了网络、连了热点时会遇到）。
-    public static func identify(_ endpoint: PhoneEndpoint, timeout: TimeInterval = 2) async -> String? {
+    /// 已知证书指纹时一并核对，对不上同样返回 nil。
+    public static func identify(_ endpoint: PhoneEndpoint, certSHA256: String?, timeout: TimeInterval = 2) async -> String? {
         struct ID: Decodable { let deviceId: String }
         var req = URLRequest(url: endpoint.baseURL.appendingPathComponent("api/id"))
         req.timeoutInterval = timeout
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+        let session = URLSession(configuration: .ephemeral, delegate: CertPin(certSHA256), delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+        guard let (data, resp) = try? await session.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return (try? JSONDecoder().decode(ID.self, from: data))?.deviceId
     }
 
     // MARK: - 普通接口
 
-    func url(_ path: String, _ query: [String: String] = [:], withToken: Bool = false) -> URL {
+    func url(_ path: String, _ query: [String: String] = [:]) -> URL {
         var comps = URLComponents(url: endpoint.baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         var items = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
-        if withToken { items.append(URLQueryItem(name: "t", value: token)) }
         comps.queryItems = items.isEmpty ? nil : items
         return comps.url!
     }
@@ -150,9 +162,9 @@ public final class PhoneClient: @unchecked Sendable {
         try await get("api/thumb", ["kind": item.kind.rawValue, "id": "\(item.id)", "v": "\(item.modified)", "size": "\(size)"])
     }
 
-    /// 带令牌的原文件地址，给 AVPlayer 这类没法加请求头的地方用。
-    public func fileURL(_ item: MediaItem) -> URL {
-        url("api/file", ["kind": item.kind.rawValue, "id": "\(item.id)"], withToken: true)
+    /// 给 AVPlayer 的播放地址。AVPlayer 没法自定义证书校验，所以走本机转发（见 LocalRelay）
+    public func playbackURL(_ item: MediaItem) async throws -> URL {
+        try await LocalRelay.shared.url(for: item, client: self)
     }
 
     public struct TrashResult: Decodable, Sendable {

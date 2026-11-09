@@ -5,8 +5,10 @@
 //
 // 加 --trigger 会让模拟手机“截一张图”，验证截图 → 剪贴板这条链路。
 // 加 --doze（模拟手机也要加 --doze）验证手机深睡、ping 停发时事件流不会被误判断线，约 5 分钟。
+// 加 --bench 对比直连和本机播放转发的吞吐与 CPU（模拟手机用 --dir 放一个大视频）。
 
 import AppKit
+import AVFoundation
 import Foundation
 import ColorLinkCore
 
@@ -29,6 +31,7 @@ func ms(since t: Date) -> String { String(format: "%.0f ms", Date().timeInterval
 let code = arg("--code") ?? "123456"
 let trigger = CommandLine.arguments.contains("--trigger")
 let doze = CommandLine.arguments.contains("--doze")
+let bench = CommandLine.arguments.contains("--bench") // 测本机转发的吞吐和 CPU，建议配合放了大视频的 --dir
 
 // ① 发现
 var endpoint: PhoneEndpoint
@@ -62,7 +65,7 @@ if let h = arg("--host") {
 // ② 未授权访问应被拒绝
 step("未配对时访问应返回 401")
 do {
-    _ = try await PhoneClient(endpoint: endpoint, token: "wrong").info()
+    _ = try await PhoneClient(endpoint: endpoint, token: "wrong", certSHA256: nil).info()
     fail("没有被拒绝")
 } catch PhoneError.unauthorized {
     ok("被拒绝")
@@ -76,9 +79,22 @@ do {
 } catch PhoneError.badPairingCode {
     ok("错误配对码被拒绝")
 }
-let pr = try await PhoneClient.pair(endpoint: endpoint, code: code, clientName: "clcheck")
-ok("配对成功：\(pr.name)")
-let client = PhoneClient(endpoint: endpoint, token: pr.token)
+let (pr, cert) = try await PhoneClient.pair(endpoint: endpoint, code: code, clientName: "clcheck")
+ok("配对成功：\(pr.name)，证书指纹 \(cert.prefix(16))…")
+let client = PhoneClient(endpoint: endpoint, token: pr.token, certSHA256: cert)
+
+step("证书固定（指纹对不上应拒绝连接，令牌不发出去）")
+let impostor = PhoneClient(endpoint: endpoint, token: pr.token, certSHA256: String(repeating: "0", count: 64))
+do {
+    _ = try await impostor.info(timeout: 4)
+    fail("指纹不对居然连上了")
+} catch {
+    guard impostor.pin.mismatch else { fail("失败了，但不是因为证书：\(error)") }
+    ok("被拒绝")
+}
+guard await PhoneClient.identify(endpoint, certSHA256: cert) == pr.deviceId,
+      await PhoneClient.identify(endpoint, certSHA256: String(repeating: "0", count: 64)) == nil else { fail("identify 没按指纹核对") }
+ok("identify 按指纹核对")
 
 let info = try await client.info()
 ok("设备信息：\(info.model) / Android \(info.android) / 电量 \(info.battery.map { "\($0)%" } ?? "?")")
@@ -121,6 +137,51 @@ step("Range 请求（视频拖动进度条靠它）")
 let (data, resp) = try await client.rawRequest(first, range: "bytes=0-99")
 guard resp.statusCode == 206, data.count == 100 else { fail("期望 206 + 100 字节，实际 \(resp.statusCode) + \(data.count)") }
 ok("206 Partial Content，\(resp.value(forHTTPHeaderField: "Content-Range") ?? "")")
+
+step("本机播放转发（AVPlayer 走它）")
+let playURL = try await client.playbackURL(first)
+var preq = URLRequest(url: playURL)
+preq.setValue("bytes=100-199", forHTTPHeaderField: "Range")
+let (pdata, presp) = try await URLSession.shared.data(for: preq)
+let ph = presp as! HTTPURLResponse
+guard ph.statusCode == 206, pdata.count == 100, pdata == (try await client.rawRequest(first, range: "bytes=100-199")).0 else {
+    fail("转发的 Range 不对：\(ph.statusCode) + \(pdata.count)")
+}
+let (whole, _) = try await URLSession.shared.data(from: playURL)
+guard Int64(whole.count) == first.size else { fail("转发整个文件 \(whole.count) 字节，应为 \(first.size)") }
+for (range, status, length) in [("bytes=-50", 206, 50), ("bytes=\(first.size)-", 416, 0)] {
+    var r = URLRequest(url: playURL)
+    r.setValue(range, forHTTPHeaderField: "Range")
+    let (d, resp) = try await URLSession.shared.data(for: r)
+    guard (resp as! HTTPURLResponse).statusCode == status, d.count == length else { fail("\(range) 应返回 \(status) + \(length) 字节") }
+}
+var bad = URLRequest(url: URL(string: "http://127.0.0.1:\(playURL.port!)/guess.jpg")!)
+bad.timeoutInterval = 3
+guard (try await URLSession.shared.data(for: bad).1 as! HTTPURLResponse).statusCode == 404 else { fail("猜的路径没有被拒绝") }
+ok("Range 和整文件都对，\(playURL.host!):\(playURL.port!)，猜路径返回 404")
+if bench, let video = try await client.media(kind: .video, offset: 0, limit: 500).items.max(by: { $0.size < $1.size }) {
+    // 转发吞吐和 CPU：直连（URLSession 收数据）和经转发各拉一遍，对比
+    func cpu() -> Double {
+        var u = rusage()
+        getrusage(RUSAGE_SELF, &u)
+        return Double(u.ru_utime.tv_sec + u.ru_stime.tv_sec) + Double(u.ru_utime.tv_usec + u.ru_stime.tv_usec) / 1e6
+    }
+    func measure(_ label: String, _ fetch: () async throws -> Int) async throws {
+        let (t0, c0) = (Date(), cpu())
+        let n = try await fetch()
+        let dt = Date().timeIntervalSince(t0)
+        ok(String(format: "%@：%.0f MB，%.0f MB/s，CPU %.1f 秒", label, Double(n) / 1e6, Double(n) / 1e6 / dt, cpu() - c0))
+    }
+    try await measure("直连") { try await client.rawRequest(video, range: "bytes=0-").0.count }
+    let relayURL = try await client.playbackURL(video)
+    try await measure("经本机转发") { try await URLSession.shared.data(from: relayURL).0.count }
+}
+if let video = try await client.media(kind: .video, offset: 0, limit: 1).items.first {
+    let asset = AVURLAsset(url: try await client.playbackURL(video))
+    let duration = try await asset.load(.duration)
+    guard duration.seconds > 0 else { fail("AVPlayer 读不出视频时长") }
+    ok("AVPlayer 经转发读出「\(video.name)」时长 \(String(format: "%.1f", duration.seconds)) 秒")
+}
 
 t = Date()
 let file = try await client.download(first, to: FileManager.default.temporaryDirectory.appendingPathComponent("clcheck"))
@@ -258,9 +319,10 @@ if doze {
 if trigger {
     // 模拟手机的调试接口只接受本机请求，所以固定走 127.0.0.1
     let debugBase = PhoneEndpoint(host: "127.0.0.1", port: endpoint.port).baseURL
+    let debug = URLSession(configuration: .ephemeral, delegate: CertPin(cert), delegateQueue: nil)
     var req = URLRequest(url: debugBase.appendingPathComponent("debug/screenshot"))
     req.httpMethod = "POST"
-    let (_, r) = try await URLSession.shared.data(for: req)
+    let (_, r) = try await debug.data(for: req)
     guard (r as? HTTPURLResponse)?.statusCode == 200 else { fail("触发模拟截图失败（--trigger 只能对本机的 mock_phone.py 使用）") }
     t = Date()
     while let ev = try await iterator.next() {
@@ -275,7 +337,7 @@ if trigger {
     }
     var nreq = URLRequest(url: debugBase.appendingPathComponent("debug/notify"))
     nreq.httpMethod = "POST"
-    _ = try await URLSession.shared.data(for: nreq)
+    _ = try await debug.data(for: nreq)
     t = Date()
     while let ev = try await iterator.next() {
         if case .notification(let n) = ev {

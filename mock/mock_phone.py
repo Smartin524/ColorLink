@@ -6,17 +6,17 @@
   python3 mock_phone.py --code 123456                 # 默认用系统自带的壁纸、视频、提示音当“手机相册”
   python3 mock_phone.py --code 123456 --dir ~/Pictures
 
-另开一个终端模拟手机上发生的事：
-  curl -X POST localhost:8765/debug/screenshot
-  curl -X POST localhost:8765/debug/notify          # 默认发一条验证码短信
-  curl -X POST 'localhost:8765/debug/clipboard?text=hello'
-  curl -X POST localhost:8765/debug/knock
-  curl -X POST 'localhost:8765/debug/power?charging=1'   # 模拟插上电源（0 = 拔掉）
-  curl -X POST 'localhost:8765/debug/dnd?mode=priority'  # 模拟手机上手动改免打扰（all/priority/alarms/none）
+另开一个终端模拟手机上发生的事（和真手机一样走 HTTPS、自签名证书，所以 curl 要加 -k）：
+  curl -k -X POST https://localhost:8765/debug/screenshot
+  curl -k -X POST https://localhost:8765/debug/notify          # 默认发一条验证码短信
+  curl -k -X POST 'https://localhost:8765/debug/clipboard?text=hello'
+  curl -k -X POST https://localhost:8765/debug/knock
+  curl -k -X POST 'https://localhost:8765/debug/power?charging=1'   # 模拟插上电源（0 = 拔掉）
+  curl -k -X POST 'https://localhost:8765/debug/dnd?mode=priority'  # 模拟手机上手动改免打扰（all/priority/alarms/none）
 
 模拟“锁屏后 mDNS 收不到”：加 --no-mdns，此时 Mac 只能靠敲门或上次的地址找到手机。
 
-只用 Python 标准库；缩略图用 macOS 自带的 sips / qlmanage 生成。
+只用 Python 标准库；缩略图用 macOS 自带的 sips / qlmanage 生成，证书用自带的 openssl 生成。
 """
 
 import argparse
@@ -32,6 +32,7 @@ import secrets
 import shutil
 import signal
 import socket
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -277,7 +278,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def authorized(self, q):
         auth = self.headers.get("Authorization", "")
-        given = auth[len("Bearer "):].strip() if auth.startswith("Bearer ") else q.get("t", "")
+        given = auth[len("Bearer "):].strip() if auth.startswith("Bearer ") else ""
         return bool(given) and hmac.compare_digest(given, STATE.token)
 
     # ---- 路由 ----
@@ -538,6 +539,19 @@ def make_screenshot():
     return STATE.library.add(out, added=time.time())
 
 
+def tls_context(data_dir):
+    """和真手机一样用自签名证书；存在数据目录里，重启模拟手机后指纹不变，Mac 不用重新配对"""
+    cert, key = os.path.join(data_dir, "tls-cert.pem"), os.path.join(data_dir, "tls-key.pem")
+    if not os.path.exists(cert):
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "3650",
+                        "-subj", "/CN=ColorLink-Mock", "-keyout", key, "-out", cert],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    ctx.load_cert_chain(cert, key)
+    return ctx
+
+
 def main():
     global STATE
     ap = argparse.ArgumentParser(description="ColorLink 模拟手机")
@@ -566,6 +580,7 @@ def main():
 
     server = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
     server.daemon_threads = True
+    server.socket = tls_context(args.data).wrap_socket(server.socket, server_side=True, do_handshake_on_connect=False)
 
     if not args.no_mdns:
         # macOS 自带 dns-sd，用它代替安卓的 NsdManager 广播服务

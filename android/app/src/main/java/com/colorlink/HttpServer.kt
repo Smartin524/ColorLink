@@ -6,7 +6,6 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetAddress
-import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketTimeoutException
 import java.net.URLDecoder
@@ -65,8 +64,11 @@ class Response(
  * 极简 HTTP/1.1 服务器：支持 keep-alive、Range（由 Api 处理）和 SSE 长连接。
  * 只服务局域网里的一台 Mac，所以用线程池 + 阻塞 IO 就够了，不引入第三方库。
  */
-class HttpServer(private val handler: (Request) -> Response) {
-    private var socket: ServerSocket? = null
+class HttpServer(
+    private val sockets: javax.net.ServerSocketFactory = javax.net.ServerSocketFactory.getDefault(),
+    private val handler: (Request) -> Response,
+) {
+    private var socket: java.net.ServerSocket? = null
     private val pool = Executors.newCachedThreadPool()
     private val clients = java.util.concurrent.ConcurrentHashMap.newKeySet<Socket>()
 
@@ -76,10 +78,10 @@ class HttpServer(private val handler: (Request) -> Response) {
 
     fun start(preferredPort: Int) {
         val s = try {
-            ServerSocket(preferredPort)
+            sockets.createServerSocket(preferredPort)
         } catch (e: IOException) {
             AppLog.w(TAG, "端口 $preferredPort 被占用，改用随机端口")
-            ServerSocket(0)
+            sockets.createServerSocket(0)
         }
         socket = s
         port = s.localPort
@@ -118,7 +120,7 @@ class HttpServer(private val handler: (Request) -> Response) {
         try {
             client.use { s ->
                 s.tcpNoDelay = true
-                s.soTimeout = 15_000
+                s.soTimeout = 15_000 // 也管 TLS 握手：连上来不说话的，15 秒后放掉
                 val input = BufferedInputStream(s.getInputStream())
                 val output = BufferedOutputStream(s.getOutputStream(), 64 * 1024)
                 while (true) {
@@ -142,7 +144,7 @@ class HttpServer(private val handler: (Request) -> Response) {
                 }
             }
         } catch (_: IOException) {
-            // 对方断开，正常情况
+            // 对方断开，正常情况（TLS 握手失败也在这里，例如旧版 Mac 还在用明文 HTTP）
         }
     }
 

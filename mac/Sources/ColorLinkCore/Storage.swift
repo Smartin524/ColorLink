@@ -5,12 +5,15 @@ public struct PairedPhone: Codable, Hashable, Sendable {
     public var name: String
     public var token: String
     public var lastEndpoint: PhoneEndpoint?
+    /// 手机 HTTPS 证书的 SHA-256 指纹（见 CertPin）。升级前配的对没有，第一次连上时补记
+    public var certSHA256: String?
 
-    public init(deviceId: String, name: String, token: String, lastEndpoint: PhoneEndpoint?) {
+    public init(deviceId: String, name: String, token: String, lastEndpoint: PhoneEndpoint?, certSHA256: String?) {
         self.deviceId = deviceId
         self.name = name
         self.token = token
         self.lastEndpoint = lastEndpoint
+        self.certSHA256 = certSHA256
     }
 }
 

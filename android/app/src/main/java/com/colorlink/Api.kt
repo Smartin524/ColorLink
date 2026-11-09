@@ -84,7 +84,7 @@ class Api(
     }
 
     private fun authorized(req: Request): Boolean {
-        val given = req.header("authorization")?.removePrefix("Bearer ")?.trim() ?: req.q("t") ?: return false
+        val given = req.header("authorization")?.removePrefix("Bearer ")?.trim() ?: return false
         val ok = MessageDigest.isEqual(given.toByteArray(), Prefs.token(ctx).toByteArray())
         // 早于“已配对”记录的老配对：有电脑带着正确密钥来访问，就补记为已配对
         if (ok && !Prefs.paired(ctx)) Prefs.setPaired(ctx)

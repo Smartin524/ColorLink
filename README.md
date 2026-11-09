@@ -29,12 +29,12 @@ ColorLink/
  ├─ 蓝牙广播固定 UUID ─────────────────────────→  系统代为扫描，扫到就唤醒 App
  ├─ Bonjour 查找 _colorlink._tcp  ←────────────  mDNS 广播自己的 IP 和端口
  ├─ 监听 UDP 8766  ←───────────────────────────  醒来 / 换网络 / 开热点时“敲门”
- ├─ HTTP：列表 / 缩略图 / 原文件（Range） ──────→  内置 HTTP 服务器（MediaStore）
- ├─ HTTP POST：拖进来的文件 ───────────────────→  存进相册 / 下载目录
+ ├─ HTTPS：列表 / 缩略图 / 原文件（Range） ─────→  内置 HTTPS 服务器（MediaStore）
+ ├─ HTTPS POST：拖进来的文件 ──────────────────→  存进相册 / 下载目录
  └─ SSE 长连接  ←──────────────────────────────  截图、新照片、通知、分享的文字
 ```
 
-- **数据全部走 Wi-Fi**。蓝牙只用来告诉手机“Mac 在旁边”。
+- **数据全部走 Wi-Fi，全程 HTTPS**。蓝牙只用来告诉手机“Mac 在旁边”。手机的证书是自己签的（私钥在 Android 密钥库里），Mac 配对时记下证书指纹，以后只认这一张，在公共 Wi-Fi 上别人也看不到通知内容、偷不到令牌。AVPlayer 没法自定义证书校验，播放视频时由 Mac 本机 127.0.0.1 上的转发代为取数据。
 - **找手机有四层兜底**：手机敲门、mDNS 发现、上次的地址、网关（Mac 连着手机热点时网关就是手机）。后两种先用不带令牌的 `/api/id` 核对设备 ID，对上了才发令牌。Mac 从睡眠中醒来、mDNS 有变化、收到敲门时会立刻重试。
 - **平时不常驻通知栏**：系统绑定着通知监听服务，进程借此一直活着，HTTP 服务等都在这个进程里，空闲时不开前台服务。Mac 连上时才启动前台服务，通知做成 Android 16 实况通知（ColorOS 显示为流体云）；断开就撤掉。没开通知使用权时，退回前台服务保活（一条折叠的静默通知）。
 - **手机热点**：Mac 和手机之间的流量不出手机，不耗流量。敲门会向所有局域网网卡（包括热点）广播，开关热点时也会敲门。
@@ -179,7 +179,7 @@ adb logcat -s ColorLink.Core ColorLink.Service ColorLink.Notify ColorLink.Http C
 - **流体云**：用的是 Android 16 标准的实况通知（`setRequestPromotedOngoing` + `ProgressStyle`），ColorOS 上的具体样子由系统决定，胶囊里不一定能完全做到“左 Mac 右绿灯”。这些接口在 API 36.1 才有，当前的 Gradle 插件不认 `android-37.0`，所以用反射调用；以后升级 AGP 就可以直接调用。
 - **状态栏图标被刘海挡住**：状态栏图标多的时候，新图标会落在刘海左侧，被当前 App 的菜单挡住。按住 ⌘ 把 ColorLink 图标拖到右边，或者用菜单栏管理工具把它放进常显区。拖文件时面板照样会弹出来，位置在图标原本的地方附近。
 - **重新生成图标**：图标（链环）由 `tools/make-icons.swift` 用代码绘制。改完造型后运行 `swift tools/make-icons.swift`。Mac 图标是 Icon Composer 格式（`mac/Resources/AppIcon.icon`，日间 / 暗色底色在 `icon.json`），`build-app.sh` 用 Xcode 的 actool 编译，所以打包需要装 Xcode；状态栏和通知栏的单色版几何分别在 `BrandIcon.swift`、`ic_link.xml`，需要同步修改。
-- **令牌**存在 Mac 的 UserDefaults 里，正式版应改存钥匙串。局域网传输目前是明文 HTTP，以后可以在配对时交换证书，改成 HTTPS。
+- **令牌**存在 Mac 的 UserDefaults 里，正式版应改存钥匙串。配对那一次是「首次信任」：如果恰好有人在配对时冒充手机，Mac 会记下他的证书；之后就不会了。手机重装 ColorLink 后证书会变，Mac 会提示重新配对。
 - **全盘文件浏览**（`MANAGE_EXTERNAL_STORAGE`）还没做，现在只能浏览照片、视频和录音。
 - 接入 Finder 侧边栏（File Provider 扩展）、从「最近照片」直接拖出到别的 App，都还没做。
 - 手机深度休眠时 CPU 暂停，20 秒一次的 ping 会延迟，Mac 可能 90 秒后才断开重连一次。这对功能没有影响，但会多一次重连，可以在实测后调整。

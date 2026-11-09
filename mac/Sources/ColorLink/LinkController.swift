@@ -187,8 +187,8 @@ final class LinkController: ObservableObject {
             endpoint = try PhoneEndpoint(parsing: manualAddress)
         }
         let clientName = Host.current().localizedName ?? "Mac"
-        let r = try await PhoneClient.pair(endpoint: endpoint, code: code, clientName: clientName)
-        PairedStore.save(PairedPhone(deviceId: r.deviceId, name: r.name, token: r.token, lastEndpoint: endpoint))
+        let (r, cert) = try await PhoneClient.pair(endpoint: endpoint, code: code, clientName: clientName)
+        PairedStore.save(PairedPhone(deviceId: r.deviceId, name: r.name, token: r.token, lastEndpoint: endpoint, certSHA256: cert))
         wake()
     }
 
@@ -244,7 +244,7 @@ final class LinkController: ObservableObject {
             }
 
             state = .connecting(paired.name)
-            let c = PhoneClient(endpoint: endpoint, token: paired.token)
+            let c = PhoneClient(endpoint: endpoint, token: paired.token, certSHA256: paired.certSHA256)
             do {
                 let info = try await c.info(timeout: 4)
                 // 连接途中锁屏 / 睡眠：那时还没有事件流可断，这里不接着连，回到循环开头进入暂停
@@ -252,6 +252,11 @@ final class LinkController: ObservableObject {
                 var p = paired
                 p.lastEndpoint = endpoint
                 p.name = info.name
+                if p.certSHA256 == nil, let cert = c.pin.seen {
+                    // 升级前配的对：第一次用 HTTPS 连上时记下手机的证书，以后只认它
+                    p.certSHA256 = cert
+                    AppLog.write("记下手机证书指纹 \(cert.prefix(16))…")
+                }
                 PairedStore.save(p)
 
                 if library?.deviceId != p.deviceId {
@@ -283,6 +288,10 @@ final class LinkController: ObservableObject {
                 AppLog.write("手机返回 401，已取消配对")
                 PairedStore.remove(paired.deviceId)
                 lastEvent = "手机已取消配对，请重新配对"
+            } catch where c.pin.mismatch {
+                // 手机重装过 ColorLink（证书跟着换了），或者有别的设备冒充这台手机。令牌没有发出去
+                AppLog.write("\(endpoint) 的证书和配对时不一样，没有连接")
+                lastEvent = "手机证书变了，请重新配对"
             } catch {
                 // 锁屏 / 睡眠时是自己取消的，不算失败
                 if !paused {
@@ -330,7 +339,7 @@ final class LinkController: ObservableObject {
                 let ep = PhoneEndpoint(host: gw, port: p.lastEndpoint?.port ?? 8765)
                 if !candidates.contains(ep) { candidates.append(ep) }
             }
-            for ep in candidates where await PhoneClient.identify(ep) == p.deviceId {
+            for ep in candidates where await PhoneClient.identify(ep, certSHA256: p.certSHA256) == p.deviceId {
                 return (p, ep)
             }
         }

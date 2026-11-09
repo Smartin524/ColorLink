@@ -88,7 +88,8 @@ object LinkCore {
         }
         if (worker.isShutdown) worker = Executors.newSingleThreadExecutor()
         media = MediaRepo(app)
-        server = HttpServer(Api(app, media, ::transferStarted, ::transferFinished)::handle).also { it.start(PORT) }
+        server = HttpServer(TlsIdentity.serverSocketFactory(), Api(app, media, ::transferStarted, ::transferFinished)::handle)
+            .also { it.start(PORT) }
         registerNsd()
         watchNetwork()
 

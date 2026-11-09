@@ -386,7 +386,13 @@ struct GalleryView: View {
         }
         if item.kind == .video {
             // 视频直接用 Range 请求边下边播
-            Windows.shared.openPlayer(c.fileURL(item))
+            Task {
+                do {
+                    Windows.shared.openPlayer(try await c.playbackURL(item))
+                } catch {
+                    AppLog.write("播放 \(item.name) 失败：\(error)")
+                }
+            }
             return
         }
         Task {
