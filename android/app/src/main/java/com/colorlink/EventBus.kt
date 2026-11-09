@@ -12,17 +12,27 @@ object EventBus {
     @Volatile
     var onSubscribersChanged: ((Int) -> Unit)? = null
 
+    private val connectionListeners = java.util.concurrent.CopyOnWriteArraySet<() -> Unit>()
+
+    fun addConnectionListener(listener: () -> Unit) { connectionListeners.add(listener) }
+    fun removeConnectionListener(listener: () -> Unit) { connectionListeners.remove(listener) }
+
+    private fun connectionChanged() {
+        onSubscribersChanged?.invoke(subscribers.size)
+        connectionListeners.forEach { it() }
+    }
+
     val count: Int get() = subscribers.size
 
     fun subscribe(): LinkedBlockingQueue<String> {
         val q = LinkedBlockingQueue<String>(256)
         subscribers.add(q)
-        onSubscribersChanged?.invoke(subscribers.size)
+        connectionChanged()
         return q
     }
 
     fun unsubscribe(q: LinkedBlockingQueue<String>) {
-        if (subscribers.remove(q)) onSubscribersChanged?.invoke(subscribers.size)
+        if (subscribers.remove(q)) connectionChanged()
     }
 
     /**

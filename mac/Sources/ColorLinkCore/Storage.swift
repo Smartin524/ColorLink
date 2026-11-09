@@ -77,6 +77,12 @@ public actor ThumbnailCache {
         try? Data(contentsOf: dir.appendingPathComponent(item.cacheKey + ".jpg"))
     }
 
+    /// Quick Look can display the existing thumbnail file immediately, without copying it.
+    public nonisolated func storedURL(_ item: MediaItem) -> URL? {
+        let url = dir.appendingPathComponent(item.cacheKey + ".jpg")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
     /// 本机是否已经存了这张缩略图
     public nonisolated func has(_ item: MediaItem) -> Bool {
         FileManager.default.fileExists(atPath: dir.appendingPathComponent(item.cacheKey + ".jpg").path)

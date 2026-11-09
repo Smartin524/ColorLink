@@ -91,6 +91,18 @@
             </intent-filter>
         </activity>
 
+        <!-- 控制中心状态磁贴：系统打开面板时绑定，关闭后解除监听。 -->
+        <service
+            android:name=".StatusTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_link"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <!-- 兜底的定时检查：进程被杀后由系统按时叫醒 -->
         <service
             android:name=".Watchdog"

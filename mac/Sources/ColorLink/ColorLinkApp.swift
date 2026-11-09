@@ -1,5 +1,6 @@
 import AppKit
 import AVKit
+import Quartz
 import SwiftUI
 
 @main
@@ -83,7 +84,7 @@ final class Windows {
             // 内容铺到标题栏下面，工具栏和红绿灯浮在内容上（macOS 26 液态玻璃的标准窗口形态）
             style.formUnion([.resizable, .fullSizeContentView])
         }
-        let w = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: style, backing: .buffered, defer: false)
+        let w = PreviewWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: style, backing: .buffered, defer: false)
         w.title = title
         w.isReleasedWhenClosed = false
         let host = NSHostingController(rootView: content())
@@ -105,4 +106,21 @@ final class Windows {
         NSApp.activate()
         return w
     }
+}
+
+/// The gallery window supplies Quick Look control through the responder chain.
+@MainActor
+private final class PreviewWindow: NSWindow {
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
+        HoldPreview.shared.active
+    }
+
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        HoldPreview.shared.takeControl(panel)
+    }
+
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        HoldPreview.shared.relinquishControl(panel)
+    }
+
 }

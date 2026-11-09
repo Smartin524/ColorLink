@@ -4,7 +4,7 @@ import SwiftUI
 
 /// 手机相册：照片 / 视频按日期分组成网格，音频是列表。
 ///
-/// 交互：单击选中，双击或空格打开；⌘ 单击加选 / 取消，⇧ 单击连续选择；拖动框选；点空白处、Esc 取消；⌘A 全选。
+/// 交互：单击选中，双击打开，指针悬停时按住空格快速预览；⌘ 单击加选 / 取消，⇧ 单击连续选择；拖动框选；点空白处、Esc 取消；⌘A 全选。
 /// 选中多项时右键点其中一张，菜单作用于全部选中项。
 struct GalleryView: View {
     @EnvironmentObject var link: LinkController
@@ -50,6 +50,7 @@ struct GalleryView: View {
                 }
             }
             .task(id: "\(kind.rawValue)-\(link.connectionID)") { await reload() }
+            .onDisappear { HoldPreview.shared.end() }
             // 本机副本有变化（核对完、第一次同步边拉边显示）时刷新
             .onReceive(link.$library.compactMap { $0?.$lists }.switchToLatest()) { show($0[kind]) }
     }
@@ -107,6 +108,14 @@ struct GalleryView: View {
                                     open(item)
                                 }
                                 .simultaneousGesture(TapGesture().onEnded { click(item) })
+                                .onHover { inside in
+                                    if inside {
+                                        frameStore.hoveredID = item.id
+                                        gridFocused = true
+                                    } else if frameStore.hoveredID == item.id {
+                                        frameStore.hoveredID = nil
+                                    }
+                                }
                                 .contextMenu { contextMenu(for: item) }
                         }
                     } header: {
@@ -142,6 +151,7 @@ struct GalleryView: View {
                         .allowsHitTesting(false)
                 }
             }
+            .background(GridScreenCoordinates(store: frameStore))
             .coordinateSpace(.named("grid"))
             .onPreferenceChange(CellFrames.self) { frameStore.frames = $0 }
             .simultaneousGesture(rubberBand)
@@ -153,9 +163,16 @@ struct GalleryView: View {
         .focused($gridFocused)
         .onKeyPress(.space, phases: .down) { press in
             guard press.modifiers.isEmpty else { return .ignored }
-            let selected = items.filter { selection.contains($0.id) }
-            guard !selected.isEmpty else { return .ignored }
-            selected.prefix(10).forEach(open)
+            guard let hoveredID = frameStore.hoveredID,
+                  frameStore.screenFrame(for: hoveredID).contains(NSEvent.mouseLocation),
+                  let item = items.first(where: { $0.id == hoveredID }) else { return .handled }
+            HoldPreview.shared.begin(
+                initialURL: link.cachedOriginal(item) ?? link.thumbs?.storedURL(item),
+                title: item.name,
+                transitionImage: ThumbImages.cached(item),
+                sourceFrame: frameStore.screenFrame(for: item.id),
+                original: { try await link.original(item) }
+            ) { message = $0 }
             return .handled
         }
         .onKeyPress(.escape) {
@@ -418,6 +435,32 @@ struct GalleryView: View {
 /// 存缩略图位置的盒子（引用类型，改它不会触发界面刷新）
 private final class FrameStore: @unchecked Sendable {
     var frames: [MediaItem.ID: CGRect] = [:]
+    var hoveredID: MediaItem.ID?
+    weak var coordinateView: NSView?
+
+    @MainActor
+    func screenFrame(for id: MediaItem.ID) -> NSRect {
+        guard let rect = frames[id], let view = coordinateView, let window = view.window else { return .zero }
+        let visible = rect.intersection(view.visibleRect)
+        guard !visible.isNull, !visible.isEmpty else { return .zero }
+        return window.convertToScreen(view.convert(visible, to: nil))
+    }
+}
+
+/// Matches the grid's top-left coordinate space, including scrolling, without intercepting input.
+private struct GridScreenCoordinates: NSViewRepresentable {
+    let store: FrameStore
+    func makeNSView(context: Context) -> CoordinateView {
+        let view = CoordinateView()
+        store.coordinateView = view
+        return view
+    }
+    func updateNSView(_ nsView: CoordinateView, context: Context) {}
+
+    final class CoordinateView: NSView {
+        override var isFlipped: Bool { true }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
 }
 
 /// 解码好的缩略图：在后台线程解码（不卡滚动），按像素算内存，最多约 150 MB

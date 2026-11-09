@@ -580,9 +580,15 @@ final class LinkController: ObservableObject {
         }
     }
 
+    func cachedOriginal(_ item: MediaItem) -> URL? {
+        if let local = localCopy(item) { return local }
+        let url = AppDirs.caches.appendingPathComponent("originals/\(item.cacheKey)/\(item.name)")
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
     /// 原图的本地文件（以原文件名保存，复制成文件时名字也对）。下载过就用下载的那份，否则缓存一份，同一张图只下载一次。
     func original(_ item: MediaItem) async throws -> URL {
-        if let local = localCopy(item) { return local }
+        if let local = cachedOriginal(item) { return local }
         guard let c = client else { throw PhoneError.streamEnded }
         let dir = AppDirs.caches.appendingPathComponent("originals/\(item.cacheKey)")
         let cached = dir.appendingPathComponent(item.name)
