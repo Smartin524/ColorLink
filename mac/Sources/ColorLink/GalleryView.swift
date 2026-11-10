@@ -171,7 +171,7 @@ struct GalleryView: View {
                 title: item.name,
                 transitionImage: ThumbImages.cached(item),
                 sourceFrame: frameStore.screenFrame(for: item.id),
-                original: { try await link.original(item) }
+                original: previewOriginal(item)
             ) { message = $0 }
             return .handled
         }
@@ -242,6 +242,12 @@ struct GalleryView: View {
     }
 
     /// 右键菜单作用的对象
+    /// 按住空格预览时去取原文件。视频动辄几个 GB，只看缩略图（已下载过的原视频照常预览）
+    private func previewOriginal(_ item: MediaItem) -> (@MainActor () async throws -> URL)? {
+        guard item.kind != .video else { return nil }
+        return { try await link.original(item) }
+    }
+
     private func targets(for item: MediaItem) -> [MediaItem] {
         selection.count > 1 && selection.contains(item.id) ? items.filter { selection.contains($0.id) } : [item]
     }

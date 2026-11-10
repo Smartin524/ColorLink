@@ -18,7 +18,7 @@ final class HoldPreview: NSObject, @preconcurrency QLPreviewPanelDataSource, @pr
     private weak var panel: QLPreviewPanel?
 
     func begin(initialURL: URL?, title: String, transitionImage: NSImage?, sourceFrame: NSRect,
-               original: @escaping @MainActor () async throws -> URL, onError: @escaping (String) -> Void) {
+               original: (@MainActor () async throws -> URL)?, onError: @escaping (String) -> Void) {
         guard !active else { return }
         active = true
         beganAt = ProcessInfo.processInfo.systemUptime
@@ -45,6 +45,10 @@ final class HoldPreview: NSObject, @preconcurrency QLPreviewPanelDataSource, @pr
         // Show the cached original or thumbnail before starting any network work.
         if let initialURL { present(initialURL, title: title) }
         guard active else { return }
+        guard let original else {
+            if item == nil { end() }
+            return
+        }
         loading = Task {
             do {
                 let url = try await original()
