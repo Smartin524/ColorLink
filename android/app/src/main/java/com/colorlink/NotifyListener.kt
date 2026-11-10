@@ -1,11 +1,14 @@
 package com.colorlink
 
+import android.app.AutomaticZenRule
 import android.app.Notification
 import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Context
+import android.net.Uri
 import android.provider.Settings
 import android.provider.Telephony
+import android.service.notification.Condition
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import org.json.JSONObject
@@ -58,14 +61,53 @@ class NotifyListener : NotificationListenerService() {
 
         /**
          * 改免打扰档位。通知监听服务本身就有这个权限，不用再要「勿扰权限」。
-         * 返回 false 表示没绑定或档位名不对。系统改完会回调 onInterruptionFilterChanged，由它推事件给 Mac
+         * 返回 false 表示没绑定或档位名不对。系统改完会回调 onInterruptionFilterChanged，由它推事件给 Mac。
+         *
+         * 不用 requestInterruptionFilter：targetSdk 35 起它不再改系统的勿扰，而是给本应用建一个隐式的「模式」，
+         * ColorOS 上实测没有任何效果。改成自己建一个名为 ColorLink 的勿扰规则，开关它的状态。
+         * 所以 Mac 上只能关掉自己开的这个；手机上手动开的勿扰，Mac 关不掉
          */
         fun setDndMode(mode: String): Boolean {
             val filter = DND_MODES.entries.firstOrNull { it.value == mode }?.key ?: return false
             val l = instance ?: return false
             AppLog.i(TAG, "Mac 把免打扰改为 $mode")
-            l.requestInterruptionFilter(filter)
+            val nm = l.getSystemService(NotificationManager::class.java)
+            val on = filter != NotificationListenerService.INTERRUPTION_FILTER_ALL
+            val id = if (on) ensureRule(l, nm, filter) else Prefs.sp(l).getString("dndRule", null)
+            if (id != null) {
+                nm.setAutomaticZenRuleState(id, Condition(DND_RULE_URI, "Mac 远程开关", if (on) Condition.STATE_TRUE else Condition.STATE_FALSE))
+            }
             return true
+        }
+
+        private val DND_RULE_URI = Uri.parse("colorlink://dnd")
+
+        /** 找到（或新建）自己的勿扰规则，档位改成 filter，返回规则 ID */
+        private fun ensureRule(ctx: Context, nm: NotificationManager, filter: Int): String {
+            val p = Prefs.sp(ctx)
+            val rule = AutomaticZenRule(
+                "ColorLink", null, ComponentName(ctx, MainActivity::class.java), DND_RULE_URI, null, filter, true,
+            )
+            p.getString("dndRule", null)?.let { id ->
+                // 用户可能在系统设置里删了它
+                if (nm.getAutomaticZenRule(id) != null && nm.updateAutomaticZenRule(id, rule)) return id
+            }
+            return nm.addAutomaticZenRule(rule).also {
+                p.edit().putString("dndRule", it).apply()
+                AppLog.i(TAG, "已建勿扰规则 ColorLink")
+            }
+        }
+
+        /** 改完没生效时记一下规则的状态，方便查原因 */
+        fun logDndRule() {
+            val l = instance ?: return
+            val nm = l.getSystemService(NotificationManager::class.java)
+            val id = Prefs.sp(l).getString("dndRule", null)
+            val rule = id?.let { nm.getAutomaticZenRule(it) }
+            AppLog.w(
+                TAG,
+                "免打扰没改成：当前 ${dndMode()}，规则 ${if (rule == null) "无" else "enabled=${rule.isEnabled} state=${nm.getAutomaticZenRuleState(id)}"}",
+            )
         }
 
         fun enabled(ctx: Context): Boolean =

@@ -62,7 +62,7 @@ ColorOS 锁屏后，Wi-Fi 芯片会过滤组播包，手机收不到 Mac 发来�
 | `POST /api/upload?name=<文件名>&mime=<类型>&batch=<批次>&index=<序号>&count=<总数>` | Mac 发文件到手机，请求体是文件内容（需带 `Content-Length`）。图片存进 `Pictures/ColorLink`，视频 `Movies/ColorLink`，音频 `Music/ColorLink`，其他 `Download/ColorLink`。一次拖过来的多个文件共用一个 `batch`，`index` 从 0 数起，手机收完最后一个才提示「已收到 N 个文件」（不带这三个参数当作单个文件）；返回保存后的 `MediaItem` |
 | `GET /api/shared?id=<id>` | 取分享菜单发来的文件（见 `shared` 事件） |
 | `GET /api/dnd` | 当前免打扰档位 `{"mode"}`；手机没开通知使用权时 `503` |
-| `POST /api/dnd?mode=all\|priority\|alarms\|none` | 改免打扰档位，立即返回 `{"mode"}`；系统改完再发 `dnd` 事件。通知监听服务自带这个权限，不用另外申请「勿扰权限」 |
+| `POST /api/dnd?mode=all\|priority\|alarms\|none` | 改免打扰档位：开关手机上一条名为 ColorLink 的勿扰规则（只关得掉这条，手机上手动开的勿扰关不掉）。最多等 2 秒，返回实际档位 `{"mode"}`，可能和请求的不同。通知监听服务自带这个权限，不用另外申请「勿扰权限」 |
 | `POST /api/trash` | 请求体 `{"items":[{"kind":"image","id":123}]}`，移到手机的「最近删除」。返回 `{"trashed":已移走数量,"pending":是否要在手机上点通知确认}`（手机给了「媒体管理」权限就不用确认） |
 
 `MediaItem`：

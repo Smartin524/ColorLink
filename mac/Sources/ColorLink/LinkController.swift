@@ -479,13 +479,20 @@ final class LinkController: ObservableObject {
 
     // MARK: - 免打扰
 
-    /// 面板上的免打扰按钮：关着就开成「仅优先」，开着（不管哪一档）就关。手机改完会回 dnd 事件，这里先按请求的值显示
+    /// 面板上的免打扰按钮：关着就开成「仅优先」，开着（不管哪一档）就关。手机等系统改完才回，回的是实际档位
     func toggleDnd() async {
         guard let c = client, let current = dnd else { return }
         let target: DndMode = current.isOn ? .all : .priority
         do {
-            dnd = try await c.setDnd(target)
-            lastEvent = target.isOn ? "免打扰已开" : "免打扰已关"
+            let actual = try await c.setDnd(target)
+            dnd = actual
+            if actual.isOn == target.isOn {
+                lastEvent = target.isOn ? "免打扰已开" : "免打扰已关"
+            } else {
+                // 手机上手动开的勿扰，Mac 只能关自己开的那个
+                lastEvent = target.isOn ? "手机没有开启免打扰" : "免打扰是在手机上开的，Mac 关不掉"
+                AppLog.write("免打扰没改成：想要 \(target.title)，手机是 \(actual.title)")
+            }
         } catch {
             lastEvent = "免打扰设置失败：\(error.localizedDescription)"
             AppLog.write("免打扰设置失败：\(error)")

@@ -60,14 +60,21 @@ class Api(
 
     /**
      * 免打扰：GET 查当前档位，POST ?mode=all|priority|alarms|none 改档位，都返回 {"mode"}。
-     * 没开通知使用权时改不了，返回 503。改完系统会异步回调，再以 dnd 事件通知 Mac
+     * 没开通知使用权时改不了，返回 503。系统是异步改的：最多等 2 秒，返回实际档位（可能没改成）
      */
     private fun dnd(req: Request): Response {
         val current = NotifyListener.dndMode() ?: return Response.text(503, "notification access not granted")
         if (req.method != "POST") return Response.json(JSONObject().put("mode", current))
         val mode = req.q("mode") ?: return Response.text(400, "missing mode")
         if (!NotifyListener.setDndMode(mode)) return Response.text(400, "bad mode")
-        return Response.json(JSONObject().put("mode", mode))
+        var actual = NotifyListener.dndMode()
+        for (i in 0 until 20) {
+            if (actual == mode) break
+            Thread.sleep(100)
+            actual = NotifyListener.dndMode()
+        }
+        if (actual != mode) NotifyListener.logDndRule()
+        return Response.json(JSONObject().put("mode", actual ?: current))
     }
 
     /** 传输期间持锁：从开始处理到响应（包括原文件的整个流）写完为止；处理出错也会放锁 */
