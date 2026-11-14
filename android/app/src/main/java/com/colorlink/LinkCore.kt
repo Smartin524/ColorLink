@@ -130,7 +130,7 @@ object LinkCore {
         startedAt = SystemClock.elapsedRealtime()
         running = true
         knockSoon()
-        AppLog.i(TAG, "核心已启动，端口 $port")
+        AppLog.i(TAG, "核心已启动，版本 ${runCatching { app.packageManager.getPackageInfo(app.packageName, 0).versionName }.getOrNull()}，端口 $port")
     }
 
     @Synchronized

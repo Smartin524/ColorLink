@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import android.provider.Telephony
 import android.service.notification.Condition
@@ -75,10 +76,20 @@ class NotifyListener : NotificationListenerService() {
             val on = filter != NotificationListenerService.INTERRUPTION_FILTER_ALL
             val id = if (on) ensureRule(l, nm, filter) else Prefs.sp(l).getString("dndRule", null)
             if (id != null) {
-                nm.setAutomaticZenRuleState(id, Condition(DND_RULE_URI, "Mac 远程开关", if (on) Condition.STATE_TRUE else Condition.STATE_FALSE))
+                // 手机上手动关过这条规则后，系统会忽略应用随后的“开”，直到应用先报一次“关”。
+                // 所以开之前先关一下；并且标明是用户亲手操作的（Mac 上点的按钮），系统按用户操作处理
+                if (on) nm.setAutomaticZenRuleState(id, condition(Condition.STATE_FALSE))
+                nm.setAutomaticZenRuleState(id, condition(if (on) Condition.STATE_TRUE else Condition.STATE_FALSE))
             }
             return true
         }
+
+        private fun condition(state: Int): Condition =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                Condition(DND_RULE_URI, "Mac 远程开关", state, Condition.SOURCE_USER_ACTION)
+            } else {
+                Condition(DND_RULE_URI, "Mac 远程开关", state)
+            }
 
         private val DND_RULE_URI = Uri.parse("colorlink://dnd")
 
