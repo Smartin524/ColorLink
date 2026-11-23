@@ -83,8 +83,8 @@ ColorOS 锁屏后，Wi-Fi 芯片会过滤组播包，手机收不到 Mac 发来�
 | `media` | `MediaItem`。手机多了一张普通照片（拍照、保存、Mac 发来的图），Mac 刷新「最近照片」 |
 | `notification` | `{"key","pkg","app","sms","title","text","time"}`。转发手机上会响的通知（静默通道、常驻、分组摘要不发），微信和系统通知除外；同一条 2 分钟内去重。`sms` 标记来自短信 App（默认短信 App 加常见短信包名），Mac 只在短信里识别验证码 |
 | `dnd` | `{"mode":"all"\|"priority"\|"alarms"\|"none"}`，免打扰档位变了（手机上手动改的，或 Mac 改完系统回调）。四档对应安卓的中断过滤：全部 / 仅优先 / 仅闹钟 / 完全静音 |
-| `clipboard` | `{"text"}`，在手机上用分享菜单「发送到 Mac」时发出 |
-| `shared` | `{"items":[{"id","name","mime","size"}]}`，在手机上用分享菜单把图片 / 文件「发送到 Mac」时发出；Mac 用 `GET /api/shared?id=` 取文件（手机保留一小时）。连着好几台电脑时，手机会先问发给哪台，`clipboard` 和 `shared` 只发给选中的那台（也可以选全部） |
+| `clipboard` | `{"text"}`，在手机上用分享菜单「发送到电脑」时发出 |
+| `shared` | `{"items":[{"id","name","mime","size"}]}`，在手机上用分享菜单把图片 / 文件「发送到电脑」时发出；电脑用 `GET /api/shared?id=` 取文件（手机保留一小时）。连着好几台电脑时，手机会先问发给哪台，`clipboard` 和 `shared` 只发给选中的那台（也可以选全部） |
 | `power` | `{"charging":true,"battery":85}`，插上 / 拔掉电源时发出。Mac 只在手机充电时在后台补缩略图，靠它开始和停下，不定时请求 `/api/info` |
 
 ## 省电约定
