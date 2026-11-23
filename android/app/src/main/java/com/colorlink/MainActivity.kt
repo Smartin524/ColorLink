@@ -65,6 +65,12 @@ class MainActivity : Activity() {
     private lateinit var connectionSwitch: Switch
     private lateinit var keepAliveSwitch: Switch
     private lateinit var runText: TextView
+    /** 大链环下面一行：连着的电脑的名字 */
+    private lateinit var computersLine: TextView
+    /** 「已连接的电脑」：每台一行，名字、地址、连了多久 */
+    private lateinit var computersTitle: View
+    private lateinit var computersCard: LinearLayout
+    private var shownComputers: List<String>? = null
     private lateinit var codeText: TextView
     /** 运行条件：只显示不满足的项，全部满足时整块隐藏 */
     private class Condition(val key: String, val view: View, val ok: () -> Boolean)
@@ -112,6 +118,10 @@ class MainActivity : Activity() {
             setPadding(dp(16), 0, dp(16), dp(24))
         }
         root.addView(connectionCard())
+        computersTitle = sectionTitle("已连接的电脑")
+        root.addView(computersTitle)
+        computersCard = card(padding = 0)
+        root.addView(computersCard)
         codeCard = codeCard()
         root.addView(codeCard)
         conditionsTitle = sectionTitle("需要处理")
@@ -217,6 +227,13 @@ class MainActivity : Activity() {
             addView(statusDot)
         }
         addView(nameRow)
+        computersLine = label("", 14f, secondary).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            maxLines = 2
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                .apply { topMargin = dp(6) }
+        }
+        addView(computersLine)
     }
 
     /**
@@ -242,6 +259,7 @@ class MainActivity : Activity() {
         header.scaleX = s
         header.scaleY = s
         nameRow.alpha = (1f - c * 2.5f).coerceIn(0f, 1f)
+        computersLine.alpha = nameRow.alpha
         topBar.alpha = ((c - 0.5f) / 0.5f).coerceIn(0f, 1f)
         // 设置从屏幕下方升上来
         scroll.translationY = (1f - e) * screenH * 0.6f
@@ -419,6 +437,8 @@ class MainActivity : Activity() {
         connectionSwitch.isChecked = enabled
         keepAliveSwitch.isEnabled = enabled
         val connected = enabled && EventBus.count > 0
+        val computers = if (connected) EventBus.computers() else emptyList()
+        val names = computers.map { it.name }
         val running = enabled && LinkCore.running
         statusDot.background = dot(if (connected) green else if (running || !enabled) secondary else red, size = 10)
         // 连上时链环长出并扣合；断开时解扣分开；没连接时是分开的灰色链环
@@ -435,7 +455,7 @@ class MainActivity : Activity() {
         }
         statusDot.contentDescription = when {
             !enabled -> "连接已关闭"
-            connected -> "已连接 ${LinkCore.macName ?: "Mac"}"
+            connected -> "已连接 ${names.joinToString("、")}"
             running -> "待命中"
             else -> "未运行"
         }
@@ -443,13 +463,18 @@ class MainActivity : Activity() {
             append(
                 when {
                     !enabled -> "已关闭"
-                    connected -> LinkCore.macName ?: "已连接"
+                    names.size > 1 -> "已连接 ${names.size} 台电脑"
+                    connected -> names.firstOrNull() ?: "已连接"
                     running -> "待命中"
                     else -> "未运行"
                 },
             )
             if (running) append(" · ${formatUptime(LinkCore.uptimeMillis)}")
         }
+        computersLine.text = names.joinToString("  ·  ")
+        computersLine.visibility = if (names.isEmpty()) View.GONE else View.VISIBLE
+        showComputers(computers)
+
         // 配对码：从没配对过就一直显示；配对过之后点「配对新电脑」才显示
         val code = Prefs.pairCode(this)
         codeText.text = getString(R.string.pair_code, code.take(3), code.drop(3))
@@ -499,6 +524,37 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> Prefs.setConfirmed(this@MainActivity, key, on) }
         }
         conditions += Condition(key, row(title, trailing = box, onClick = onClick)) { Prefs.confirmed(this, key) }
+    }
+
+    /** 已连接的电脑：每台一行，左边绿灯和名字，右边地址和连了多久。没有电脑时整块隐藏 */
+    private fun showComputers(computers: List<EventBus.Computer>) {
+        computersTitle.visibility = if (computers.isEmpty()) View.GONE else View.VISIBLE
+        computersCard.visibility = computersTitle.visibility
+        val now = System.currentTimeMillis()
+        val texts = computers.map { c ->
+            listOfNotNull(c.address, "已连 ${formatUptime(now - c.since)}").joinToString(" · ")
+        }
+        // 每秒刷新：电脑没变时只改右边的文字，不重建
+        val keys = computers.map { it.name }
+        if (keys == shownComputers) {
+            var i = 0
+            for (v in 0 until computersCard.childCount) {
+                val row = computersCard.getChildAt(v) as? LinearLayout ?: continue
+                (row.getChildAt(row.childCount - 1) as TextView).text = texts[i++]
+            }
+            return
+        }
+        shownComputers = keys
+        computersCard.removeAllViews()
+        computers.forEachIndexed { i, c ->
+            if (i > 0) computersCard.addView(separator())
+            computersCard.addView(row(c.name, trailing = label(texts[i], 14f, secondary)).apply {
+                addView(View(context).apply {
+                    background = dot(green)
+                    layoutParams = LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(12) }
+                }, 0)
+            })
+        }
     }
 
     private fun row(title: String, trailing: View? = null, titleColor: Int = primary, onClick: (() -> Unit)? = null) =

@@ -21,8 +21,8 @@ class ConnectionTileStatusTest {
         var notifications = 0
         val listener: () -> Unit = { notifications++ }
         EventBus.addConnectionListener(listener)
-        val first = EventBus.subscribe()
-        val second = EventBus.subscribe()
+        val first = EventBus.subscribe("A", null)
+        val second = EventBus.subscribe("A", null)
         try {
             assertEquals(2, notifications)
             EventBus.unsubscribe(first)
@@ -35,6 +35,33 @@ class ConnectionTileStatusTest {
             EventBus.removeConnectionListener(listener)
             EventBus.unsubscribe(first)
             EventBus.unsubscribe(second)
+        }
+    }
+
+    @Test fun twoComputersAreTrackedSeparately() {
+        val macA = java.net.InetAddress.getByName("192.168.1.10")
+        val macB = java.net.InetAddress.getByName("192.168.1.20")
+        val a1 = EventBus.subscribe("MacBook", macA)
+        val a2 = EventBus.subscribe("MacBook", macA) // 同一台电脑的第二个连接
+        val b = EventBus.subscribe("iMac", macB)
+        try {
+            assertEquals(listOf("MacBook", "iMac"), EventBus.computers().map { it.name })
+            assertEquals("192.168.1.20", EventBus.computers()[1].address)
+            assertEquals("iMac", EventBus.nameFor(macB))
+            assertEquals(null, EventBus.nameFor(java.net.InetAddress.getByName("192.168.1.30")))
+            // 只发给 iMac
+            EventBus.publish("clipboard", org.json.JSONObject(), to = "iMac")
+            assertEquals(0, a1.queue.size)
+            assertEquals(1, b.queue.size)
+            // 不指定就都发
+            EventBus.publish("clipboard", org.json.JSONObject())
+            assertEquals(1, a1.queue.size)
+            assertEquals(1, a2.queue.size)
+            assertEquals(2, b.queue.size)
+        } finally {
+            EventBus.unsubscribe(a1)
+            EventBus.unsubscribe(a2)
+            EventBus.unsubscribe(b)
         }
     }
 }

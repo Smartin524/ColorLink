@@ -44,17 +44,20 @@ object LinkCore {
     /** Mac 刚连上时的“播报窗口”：流体云弹一下就收（像一次性通知），不常驻。 */
     private const val ANNOUNCE_MS = 2_500L
     private const val RECONNECT_QUIET_MS = 60_000L
-    private var disconnectedAt = -RECONNECT_QUIET_MS
 
     @Volatile
     private var announceUntil = 0L
-    private var lastSubscribers = 0
 
     val announcing: Boolean get() = SystemClock.elapsedRealtime() < announceUntil
 
-    /** 最近一次连上来的 Mac 的名字，显示在流体云里。 */
+    /** 流体云这次弹出是因为哪台电脑连上了 */
     @Volatile
-    var macName: String? = null
+    var announcedName: String? = null
+        private set
+
+    /** 上次看到的已连接电脑；断开过的电脑什么时候断的（短时间内重连不再弹流体云） */
+    private var lastNames = emptySet<String>()
+    private val goneAt = HashMap<String, Long>()
 
     private lateinit var app: Application
     private val handler = Handler(Looper.getMainLooper())
@@ -98,18 +101,22 @@ object LinkCore {
 
         // Mac 连上 / 断开时，决定要不要开前台服务（流体云）
         EventBus.onSubscribersChanged = { n ->
-            AppLog.i(TAG, if (n > 0) "Mac 已连接（${macName ?: "?"}，共 $n 个连接）" else "Mac 已断开")
+            val computers = EventBus.computers().map { it.name }
+            AppLog.i(TAG, if (n > 0) "已连接：${computers.joinToString("、")}（共 $n 个连接）" else "电脑都已断开")
             handler.post {
                 if (!running) return@post
                 val now = SystemClock.elapsedRealtime()
-                // 从没连接到连上：弹一下流体云，到时间自动收起。
-                // 刚断开不到 1 分钟又连上的（网络抖一下、Mac 重连）不算新连接，不弹
-                if (lastSubscribers == 0 && n > 0 && now - disconnectedAt > RECONNECT_QUIET_MS) {
+                val names = EventBus.computers().map { it.name }.toSet()
+                (lastNames - names).forEach { goneAt[it] = now }
+                // 有电脑新连上：弹一下流体云写上它的名字，到时间自动收起。
+                // 同一台刚断开不到 1 分钟又连上的（网络抖一下、Mac 重连）不算新连接，不弹
+                val fresh = (names - lastNames).firstOrNull { now - (goneAt[it] ?: -RECONNECT_QUIET_MS) > RECONNECT_QUIET_MS }
+                if (fresh != null) {
+                    announcedName = fresh
                     announceUntil = now + ANNOUNCE_MS
                     handler.postDelayed({ LinkService.refresh(app) }, ANNOUNCE_MS + 100)
                 }
-                if (lastSubscribers > 0 && n == 0) disconnectedAt = now
-                lastSubscribers = n
+                lastNames = names
                 LinkService.refresh(app)
                 if (n > 0) MacNetworks.remember(app)
                 BleWake.update(app)
@@ -150,9 +157,10 @@ object LinkCore {
         activeTransfers = 0
         handler.removeCallbacksAndMessages(null)
         lastKnockAt = -30_000L
-        lastSubscribers = 0
         announceUntil = 0
-        macName = null
+        announcedName = null
+        lastNames = emptySet()
+        goneAt.clear()
         releaseLocks()
         AppLog.i(TAG, "核心已停止")
     }

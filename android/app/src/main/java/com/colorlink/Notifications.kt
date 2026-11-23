@@ -93,8 +93,11 @@ object Notifications {
                 .build()
         }
         val announcing = state == LinkState.ANNOUNCING
+        // 流体云展开时写刚连上的那台；常驻通知列出连着的所有电脑
+        val names = EventBus.computers().map { it.name }
         val b = Notification.Builder(ctx, if (announcing) CH_CONNECTED else CH_LINKED)
-            .setContentTitle("ColorLink 已连接")
+            .setContentTitle(if (names.size > 1) "ColorLink 已连接 ${names.size} 台电脑" else "ColorLink 已连接")
+            .setContentText(if (announcing) LinkCore.announcedName ?: names.joinToString("、") else names.joinToString("、"))
             .setShowWhen(false)
             .setContentIntent(openApp(ctx))
             .setCategory(Notification.CATEGORY_STATUS)
@@ -138,7 +141,7 @@ object Notifications {
     }
 
     /** 一个文件收完。不是这批的最后一个就继续显示进度；最后一个收完弹「已收到」 */
-    fun receivedOne(ctx: Context, saved: MediaRepo.Saved, batchId: String, index: Int, count: Int) {
+    fun receivedOne(ctx: Context, saved: MediaRepo.Saved, batchId: String, index: Int, count: Int, from: String?) {
         val current = batch?.takeIf { it.id == batchId && it.count == count } ?: Batch(batchId, count).also { batch = it }
         current.saved += saved
         if (index < count - 1) {
@@ -146,14 +149,14 @@ object Notifications {
             return
         }
         batch = null
-        receivedAll(ctx, current.saved)
+        receivedAll(ctx, current.saved, from)
     }
 
     /**
      * 整批收完：流体云弹出「已收到 N 个文件」，点一下打开（一个文件直接打开，多个打开所在文件夹），
      * 点过或 10 秒后自动消失。实况通知必须是常驻的，所以点击后由 OpenReceivedActivity 负责撤掉它。
      */
-    private fun receivedAll(ctx: Context, saved: List<MediaRepo.Saved>) {
+    private fun receivedAll(ctx: Context, saved: List<MediaRepo.Saved>, from: String?) {
         if (saved.isEmpty()) return
         val allImages = saved.all { it.mime.startsWith("image/") }
         val what = when {
@@ -174,6 +177,8 @@ object Notifications {
             .setOngoing(true)
             .setTimeoutAfter(10_000)
             .setShowWhen(false)
+        // 连着不止一台电脑时，标出是哪台发来的
+        if (from != null && EventBus.computers().size > 1) b.setSubText("来自 $from")
         if (saved.size == 1 && allImages) {
             runCatching { ctx.contentResolver.loadThumbnail(saved[0].uri, Size(256, 256), null) }.getOrNull()
                 ?.let { b.setLargeIcon(it) }
@@ -201,11 +206,11 @@ object Notifications {
     }
 
     /** Mac 要删的照片系统需要确认：点通知弹出系统的「移到回收站」确认框 */
-    fun confirmTrash(ctx: Context, request: PendingIntent, count: Int) {
+    fun confirmTrash(ctx: Context, request: PendingIntent, count: Int, from: String?) {
         createChannels(ctx)
         val b = Notification.Builder(ctx, CH_RECEIVED)
             .setSmallIcon(R.drawable.ic_link)
-            .setContentTitle("${LinkCore.macName ?: "Mac"} 想删除 $count 项")
+            .setContentTitle("${from ?: "电脑"} 想删除 $count 项")
             .setContentText("点按确认移到「最近删除」；在 ColorLink 里打开「媒体管理」后就不用再确认")
             .setContentIntent(request)
             .setAutoCancel(true)

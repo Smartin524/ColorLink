@@ -42,7 +42,7 @@ object Knock {
             .toByteArray()
 
         val targets = buildList {
-            Prefs.lastMac(ctx)?.let { host -> runCatching { InetAddress.getByName(host) }.getOrNull()?.let(::add) }
+            Prefs.recentMacs(ctx).forEach { host -> runCatching { InetAddress.getByName(host) }.getOrNull()?.let(::add) }
             addAll(broadcastAddresses()) // Mac 换了 IP 时靠广播找到它
         }.distinct()
         if (targets.isEmpty()) return

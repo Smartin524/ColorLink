@@ -121,7 +121,7 @@ class MediaRepo(context: Context) {
      * 3. 还是没成功，就发一条通知，用户点一下在系统确认框里确认。
      * 返回已经移走的数量和是否在等用户确认。
      */
-    fun trash(targets: List<Pair<Kind, Long>>): Pair<Int, Boolean> {
+    fun trash(targets: List<Pair<Kind, Long>>, from: String? = null): Pair<Int, Boolean> {
         val uris = targets.map { (kind, id) -> ContentUris.withAppendedId(kind.uri, id) }
         if (uris.isEmpty()) return 0 to false
         val left = uris.filterNot { uri ->
@@ -149,7 +149,7 @@ class MediaRepo(context: Context) {
             }
         }
         val pending = left.count { !isTrashed(it) }
-        if (pending > 0) Notifications.confirmTrash(ctx, request, pending)
+        if (pending > 0) Notifications.confirmTrash(ctx, request, pending, from)
         return uris.size - pending to (pending > 0)
     }
 

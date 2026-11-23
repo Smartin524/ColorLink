@@ -54,6 +54,8 @@ class LinkService : Service() {
     }
 
     private var shown: Notifications.LinkState? = null
+    /** 通知上写着的电脑；连着时又来一台、走了一台，原地更新通知 */
+    private var shownNames = emptyList<String>()
     private var night = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -114,7 +116,14 @@ class LinkService : Service() {
      */
     private fun show() {
         val state = state()
-        if (state == shown) return
+        val names = EventBus.computers().map { it.name }
+        if (state == shown && names == shownNames) return
+        shownNames = names
+        if (state == shown) {
+            // 只是电脑变了：原地更新，不重新弹
+            getSystemService(NotificationManager::class.java).notify(Notifications.ID_LINK, Notifications.link(this, state))
+            return
+        }
         AppLog.i(TAG, "前台服务通知：$state")
         val notification = Notifications.link(this, state)
         if (shown == null || state == Notifications.LinkState.ANNOUNCING) {

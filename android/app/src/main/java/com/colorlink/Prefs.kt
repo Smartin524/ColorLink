@@ -59,8 +59,14 @@ object Prefs {
     /** 最近一次连上来的 Mac 的 IP，手机醒来时直接给它“敲门”。 */
     fun lastMac(ctx: Context): String? = sp(ctx).getString("lastMac", null)
 
+    /** 最近连上来过的几台电脑的 IP（最新的在前），手机醒来时都敲一下 */
+    fun recentMacs(ctx: Context): List<String> =
+        sp(ctx).getString("recentMacs", null)?.split(',')?.filter { it.isNotBlank() } ?: listOfNotNull(lastMac(ctx))
+
     fun setLastMac(ctx: Context, host: String) {
-        if (host != lastMac(ctx)) sp(ctx).edit().putString("lastMac", host).apply()
+        val recent = (listOf(host) + recentMacs(ctx).filter { it != host }).take(4)
+        if (host == lastMac(ctx) && recent == recentMacs(ctx)) return
+        sp(ctx).edit().putString("lastMac", host).putString("recentMacs", recent.joinToString(",")).apply()
     }
 
     /** ColorOS 不让 App 查询的设置项，只能由用户设好后手动打勾。 */

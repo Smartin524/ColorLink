@@ -198,14 +198,14 @@ class Api(
     }
 
     private fun events(req: Request): Response {
-        req.q("name")?.takeIf { it.isNotBlank() }?.let { LinkCore.macName = it }
-        // 记下 Mac 的地址，手机下次醒来时直接给它敲门
+        val name = req.q("name")?.takeIf { it.isNotBlank() } ?: req.remote.hostAddress ?: "电脑"
+        // 记下电脑的地址，手机下次醒来时直接给它敲门
         val addr = req.remote
         if (addr is java.net.Inet4Address && !addr.isLoopbackAddress) addr.hostAddress?.let { Prefs.setLastMac(ctx, it) }
-        return eventStream()
+        return eventStream(name, addr)
     }
 
-    private fun eventStream() = Response(
+    private fun eventStream(name: String, address: java.net.InetAddress?) = Response(
         200,
         mutableMapOf(
             "Content-Type" to "text/event-stream; charset=utf-8",
@@ -214,7 +214,8 @@ class Api(
             "X-Content-Type-Options" to "nosniff",
         ),
         Response.Body.Streaming { out ->
-            val q = EventBus.subscribe()
+            val sub = EventBus.subscribe(name, address)
+            val q = sub.queue
             try {
                 out.write("event: hello\ndata: ${info()}\n\n".toByteArray())
                 out.flush()
@@ -227,7 +228,7 @@ class Api(
             } catch (_: IOException) {
             } catch (_: InterruptedException) {
             } finally {
-                EventBus.unsubscribe(q)
+                EventBus.unsubscribe(sub)
             }
         },
     )
@@ -244,8 +245,9 @@ class Api(
             val o = items.getJSONObject(i)
             MediaRepo.Kind.of(o.optString("kind"))?.let { it to o.getLong("id") }
         }
-        val (trashed, pending) = media.trash(targets)
-        AppLog.i("ColorLink.Api", "Mac 请求删除 ${targets.size} 项：已移到最近删除 $trashed，等待确认 $pending")
+        val from = EventBus.nameFor(req.remote)
+        val (trashed, pending) = media.trash(targets, from)
+        AppLog.i("ColorLink.Api", "${from ?: "电脑"} 请求删除 ${targets.size} 项：已移到最近删除 $trashed，等待确认 $pending")
         return Response.json(JSONObject().put("trashed", trashed).put("pending", pending))
     }
 
@@ -276,8 +278,8 @@ class Api(
             Notifications.receiveFailed(ctx)
             throw e
         }
-        AppLog.i("ColorLink.Api", "收到 Mac 发来的文件：$mime，保存到 ${saved.dir}")
-        Notifications.receivedOne(ctx, saved, batchId, index, count)
+        AppLog.i("ColorLink.Api", "收到${EventBus.nameFor(req.remote) ?: "电脑"}发来的文件：$mime，保存到 ${saved.dir}")
+        Notifications.receivedOne(ctx, saved, batchId, index, count, EventBus.nameFor(req.remote))
         return Response.json(saved.json)
     }
 

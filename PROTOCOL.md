@@ -58,7 +58,7 @@ ColorOS 锁屏后，Wi-Fi 芯片会过滤组播包，手机收不到 Mac 发来�
 | `GET /api/media?kind=image\|video\|audio&offset=0&limit=200` | 按加入时间倒序分页：`{"total","items":[MediaItem]}` |
 | `GET /api/thumb?kind=&id=&v=<modified>&size=256` | JPEG 缩略图。手机端提前生成并缓存在磁盘上，`v` 变了就重新生成 |
 | `GET /api/file?kind=&id=` | 原文件，支持 `Range`（视频可以边下边播、随意拖动） |
-| `GET /api/events?name=<电脑名>` | Server-Sent Events 长连接，见下。`name` 显示在手机的流体云里 |
+| `GET /api/events?name=<电脑名>` | Server-Sent Events 长连接，见下。可以好几台电脑同时连：手机按 `name` 区分电脑（同名的连接算一台），显示在首页、流体云和通知里；收文件、删照片时按来源 IP 认出是哪台。每台电脑要用不同的名字 |
 | `POST /api/upload?name=<文件名>&mime=<类型>&batch=<批次>&index=<序号>&count=<总数>` | Mac 发文件到手机，请求体是文件内容（需带 `Content-Length`）。图片存进 `Pictures/ColorLink`，视频 `Movies/ColorLink`，音频 `Music/ColorLink`，其他 `Download/ColorLink`。一次拖过来的多个文件共用一个 `batch`，`index` 从 0 数起，手机收完最后一个才提示「已收到 N 个文件」（不带这三个参数当作单个文件）；返回保存后的 `MediaItem` |
 | `GET /api/shared?id=<id>` | 取分享菜单发来的文件（见 `shared` 事件） |
 | `GET /api/dnd` | 当前免打扰档位 `{"mode"}`；手机没开通知使用权时 `503` |
@@ -84,7 +84,7 @@ ColorOS 锁屏后，Wi-Fi 芯片会过滤组播包，手机收不到 Mac 发来�
 | `notification` | `{"key","pkg","app","sms","title","text","time"}`。转发手机上会响的通知（静默通道、常驻、分组摘要不发），微信和系统通知除外；同一条 2 分钟内去重。`sms` 标记来自短信 App（默认短信 App 加常见短信包名），Mac 只在短信里识别验证码 |
 | `dnd` | `{"mode":"all"\|"priority"\|"alarms"\|"none"}`，免打扰档位变了（手机上手动改的，或 Mac 改完系统回调）。四档对应安卓的中断过滤：全部 / 仅优先 / 仅闹钟 / 完全静音 |
 | `clipboard` | `{"text"}`，在手机上用分享菜单「发送到 Mac」时发出 |
-| `shared` | `{"items":[{"id","name","mime","size"}]}`，在手机上用分享菜单把图片 / 文件「发送到 Mac」时发出；Mac 用 `GET /api/shared?id=` 取文件（手机保留一小时） |
+| `shared` | `{"items":[{"id","name","mime","size"}]}`，在手机上用分享菜单把图片 / 文件「发送到 Mac」时发出；Mac 用 `GET /api/shared?id=` 取文件（手机保留一小时）。连着好几台电脑时，手机会先问发给哪台，`clipboard` 和 `shared` 只发给选中的那台（也可以选全部） |
 | `power` | `{"charging":true,"battery":85}`，插上 / 拔掉电源时发出。Mac 只在手机充电时在后台补缩略图，靠它开始和停下，不定时请求 `/api/info` |
 
 ## 省电约定

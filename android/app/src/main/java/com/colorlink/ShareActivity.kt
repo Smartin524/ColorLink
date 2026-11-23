@@ -18,7 +18,7 @@ private const val TAG = "ColorLink.Share"
  * 分享菜单里的「发送到 Mac」：
  * - 图片、文件（一个或多个）：Mac 收下后存进「图片 / 下载」的 ColorLink 文件夹并复制到剪贴板；
  * - 文字：直接放进 Mac 剪贴板（安卓 10 以后后台 App 读不到剪贴板，只能这样主动发）。
- * Mac 没连着时先敲门，等几秒它连上再发。
+ * Mac 没连着时先敲门，等几秒它连上再发。连着不止一台电脑时先问发给哪台。
  */
 class ShareActivity : Activity() {
     private val main = Handler(Looper.getMainLooper())
@@ -42,23 +42,50 @@ class ShareActivity : Activity() {
         val app = applicationContext
         thread(name = "share") {
             val files = uris.mapNotNull { SharedFiles.add(app, it, intent.type) }
-            main.post { finish() }
-            if (!waitForMac()) {
-                done("Mac 未连接")
-                return@thread
-            }
-            val msg = if (files.isNotEmpty()) {
-                EventBus.publish("shared", JSONObject().put("items", JSONArray(files.map { it.json })))
-                AppLog.i(TAG, "分享 ${files.size} 个文件到 Mac")
-                if (files.size < uris.size) "已发送 ${files.size} 个，${uris.size - files.size} 个读取失败" else "已发送到 Mac"
-            } else if (!text.isNullOrEmpty()) {
-                EventBus.publish("clipboard", JSONObject().put("text", text))
-                "已发送到 Mac 剪贴板"
+            val computers = EventBus.computers().map { it.name }
+            if (computers.size > 1) {
+                main.post { choose(computers) { to -> thread(name = "share") { send(files, uris.size, text, to) } } }
             } else {
-                "读取分享的内容失败"
+                main.post { finish() }
+                send(files, uris.size, text, null)
             }
-            done(msg)
         }
+    }
+
+    /** 连着好几台电脑：弹个列表选发给哪台，也可以都发 */
+    private fun choose(computers: List<String>, then: (String?) -> Unit) {
+        if (isFinishing) return
+        val night = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val theme = if (night) android.R.style.Theme_DeviceDefault_Dialog_Alert else android.R.style.Theme_DeviceDefault_Light_Dialog_Alert
+        android.app.AlertDialog.Builder(this, theme)
+            .setTitle("发送到")
+            .setItems((computers + "全部电脑").toTypedArray()) { _, i ->
+                finish()
+                then(computers.getOrNull(i))
+            }
+            .setOnCancelListener { done("已取消") }
+            .show()
+    }
+
+    /** to：只发给这台电脑；null 发给所有连着的 */
+    private fun send(files: List<SharedFiles.Entry>, requested: Int, text: String?, to: String?) {
+        if (!waitForMac()) {
+            done("Mac 未连接")
+            return
+        }
+        val where = to ?: "Mac"
+        val msg = if (files.isNotEmpty()) {
+            EventBus.publish("shared", JSONObject().put("items", JSONArray(files.map { it.json })), to)
+            AppLog.i(TAG, "分享 ${files.size} 个文件到 ${to ?: "所有电脑"}")
+            if (files.size < requested) "已发送 ${files.size} 个，${requested - files.size} 个读取失败" else "已发送到 $where"
+        } else if (!text.isNullOrEmpty()) {
+            EventBus.publish("clipboard", JSONObject().put("text", text), to)
+            "已发送到 $where 剪贴板"
+        } else {
+            "读取分享的内容失败"
+        }
+        done(msg)
     }
 
     private fun streams(intent: Intent): List<Uri> = when (intent.action) {
