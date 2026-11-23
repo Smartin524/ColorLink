@@ -17,6 +17,8 @@
     <!-- 不打 MSIX 包，直接运行 exe；Windows App SDK 运行库跟着程序走，不用另装 -->
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <!-- 不打包时 dotnet publish 也要带上自己的 resources.pri 和 .xbf，否则窗口加载 XAML 失败 -->
+    <EnableMsixTooling>true</EnableMsixTooling>
     <SelfContained>true</SelfContained>
     <!-- 自己写 Main：单实例、把「发送到」的文件转给已经在运行的那个 -->
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
