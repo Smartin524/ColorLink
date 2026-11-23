@@ -3,8 +3,8 @@
     python windows/tools/make-icons.py
 
 - ColorLink.ico / ColorLink.png：应用图标，取 mac/Resources/AppIcon.icon/Assets/Link.png 的彩色链环
-- Tray-{Light,Dark}-{On,Off}.ico：托盘单色图标，几何同 android/.../ic_link.xml（两个跑道形圆环，转 -45°）。
-  Light = 浅色任务栏用的深色图形，Dark = 深色任务栏用的白色图形；Off = 断开时变淡
+- Tray-{Light,Dark}-Off.ico：断开时的托盘单色淡色图标，几何同 android/.../ic_link.xml（两个跑道形圆环，转 -45°）。
+  Light = 浅色任务栏用的深色图形，Dark = 深色任务栏用的白色图形。连上时托盘直接用彩色的 ColorLink.ico
 """
 import os
 from PIL import Image, ImageDraw
@@ -51,9 +51,8 @@ def mono_link(color, stroke=72):
 
 def tray_icons():
     for theme, rgb in (("Light", (0, 0, 0)), ("Dark", (255, 255, 255))):
-        for state, alpha in (("On", 255), ("Off", 110)):
-            im = mono_link(rgb + (alpha,))
-            im.save(os.path.join(OUT, f"Tray-{theme}-{state}.ico"), sizes=[(s, s) for s in (16, 20, 24, 32, 40, 48, 64)])
+        im = mono_link(rgb + (110,))
+        im.save(os.path.join(OUT, f"Tray-{theme}-Off.ico"), sizes=[(s, s) for s in (16, 20, 24, 32, 40, 48, 64)])
 
 
 app_icon()

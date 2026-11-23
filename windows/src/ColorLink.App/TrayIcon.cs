@@ -43,7 +43,7 @@ sealed class TrayIcon : IDisposable
         Add();
     }
 
-    /// <summary>连接状态：连着是实心，断开变淡</summary>
+    /// <summary>连接状态：连着是彩色链环，断开是淡色单色链环</summary>
     public void SetState(bool connected, string tip)
     {
         _connected = connected;
@@ -59,7 +59,8 @@ sealed class TrayIcon : IDisposable
 
     IntPtr LoadIcon()
     {
-        var name = $"Tray-{(TaskbarIsLight() ? "Light" : "Dark")}-{(_connected ? "On" : "Off")}.ico";
+        // 连上：彩色链环（和应用图标一样）；断开：跟任务栏深浅色走的淡色单色链环。16px 下只靠透明度区分看不出来
+        var name = _connected ? "ColorLink.ico" : $"Tray-{(TaskbarIsLight() ? "Light" : "Dark")}-Off.ico";
         var path = Path.Combine(AppContext.BaseDirectory, "Assets", name);
         uint dpi = GetDpiForWindow(_hwnd) is var d and > 0 ? d : GetDpiForSystem();
         int size = GetSystemMetricsForDpi(SM_CXSMICON, dpi);

@@ -50,8 +50,9 @@ public sealed class MediaItemVM(MediaItem item) : INotifyPropertyChanged
 }
 
 /// <summary>按拍摄日期分的一组</summary>
-public sealed class DayGroup(string title, IEnumerable<MediaItemVM> items) : ObservableCollection<MediaItemVM>(items)
+public sealed class DayGroup(DateTime day, string title, IEnumerable<MediaItemVM> items) : ObservableCollection<MediaItemVM>(items)
 {
+    public DateTime Day { get; } = day;
     public string Title { get; } = title;
 }
 
@@ -101,6 +102,7 @@ public sealed partial class GalleryWindow : Window
                 break;
             case nameof(LinkController.State):
                 UpdateTitle();
+                Show(); // 计数里的「手机未连接」
                 break;
             case "Downloads":
                 foreach (var vm in _current) vm.Downloaded = _link.IsDownloaded(vm.Item);
@@ -127,8 +129,10 @@ public sealed partial class GalleryWindow : Window
 
     void UpdateTitle()
     {
+        // 标题跟着当前分类走（照片 / 视频 / 音频）+ 缩短的手机名；连没连上写在计数那里
         var name = _link.Device?.Name ?? PairedStore.All().FirstOrDefault()?.Name;
-        WindowTitle.Text = name is null ? "相册" : $"相册 · {name}{(_link.IsConnected ? "" : "（未连接，显示本机保存的副本）")}";
+        WindowTitle.Text = name is null ? _kind.Title() : $"{_kind.Title()} · {PanelWindow.ShortName(name)}";
+        Title = $"{_kind.Title()} - ColorLink";
         SendButton.IsEnabled = _link.IsConnected;
     }
 
@@ -144,9 +148,16 @@ public sealed partial class GalleryWindow : Window
     void Show()
     {
         var snap = _library?[_kind];
-        var items = snap?.Items ?? [];
+        // 照片 / 视频按拍摄时间从新到旧（手机按加入媒体库的顺序给，拍摄时间早的可能排在前面）
+        IReadOnlyList<MediaItem> items = snap?.Items ?? [];
+        if (_kind != MediaKind.Audio)
+            items = items.OrderByDescending(i => i.CapturedDate).ThenByDescending(i => i.Id).ToList();
         var sig = $"{_kind}|{items.Count}|{items.FirstOrDefault()?.CacheKey}|{items.LastOrDefault()?.CacheKey}|{snap?.Complete}";
-        CountText.Text = snap is null ? "" : snap.Complete ? $"共 {snap.Total} 项" : $"正在读取 {items.Count}/{snap.Total}…";
+        var unit = _kind == MediaKind.Image ? "张" : "个";
+        CountText.Text = snap is null || snap.Total == 0 ? (_link.IsConnected ? "" : "手机未连接")
+            : !_link.IsConnected ? $"{snap.Total} {unit} · 手机未连接"
+            : items.Count < snap.Total ? $"正在同步 {items.Count} / {snap.Total} {unit}"
+            : $"{snap.Total} {unit}";
         SyncRing.IsActive = _library?.IsSyncing(_kind) == true;
         if (sig == _shownSignature) return;
         _shownSignature = sig;
@@ -177,8 +188,13 @@ public sealed partial class GalleryWindow : Window
     static List<DayGroup> Group(List<MediaItemVM> items)
     {
         var result = new List<DayGroup>();
-        foreach (var g in items.GroupBy(i => i.Item.CapturedDate.ToLocalTime().Date))
-            result.Add(new DayGroup(DayTitle(g.Key), g));
+        // 已经按时间排好，相邻同一天的归一组
+        foreach (var item in items)
+        {
+            var day = item.Item.CapturedDate.ToLocalTime().Date;
+            if (result.Count == 0 || result[^1].Day != day) result.Add(new DayGroup(day, DayTitle(day), []));
+            result[^1].Add(item);
+        }
         return result;
     }
 
@@ -194,6 +210,7 @@ public sealed partial class GalleryWindow : Window
     void KindBar_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
     {
         _kind = sender.SelectedItem?.Tag switch { "video" => MediaKind.Video, "audio" => MediaKind.Audio, _ => MediaKind.Image };
+        UpdateTitle();
         _shownSignature = null;
         Show();
         _ = SyncAsync();
@@ -307,7 +324,7 @@ public sealed partial class GalleryWindow : Window
     {
         ShowStatus(items.Count == 1 ? $"正在复制 {items[0].Name}…" : $"正在复制 {items.Count} 项…", InfoBarSeverity.Informational);
         bool ok = await _link.CopyToClipboardAsync(items);
-        ShowStatus(ok ? $"{_link.LastEvent}，可以直接粘贴" : _link.LastEvent ?? "复制失败", ok ? InfoBarSeverity.Success : InfoBarSeverity.Error);
+        ShowStatus(ok ? _link.LastEvent ?? "已复制" :_link.LastEvent ?? "复制失败", ok ? InfoBarSeverity.Success : InfoBarSeverity.Error);
     }
 
     async Task SaveAsync(List<MediaItem> items)

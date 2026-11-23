@@ -4,6 +4,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using System.Text.RegularExpressions;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
 using Windows.Storage;
@@ -69,7 +70,11 @@ public sealed partial class PanelWindow : Window
         if (e.PropertyName is nameof(LinkController.Transfer) && _link.Transfer is { } t)
             ShowOverlay(t, uploading: true);
         else if (e.PropertyName is nameof(LinkController.Transfer) && !_dragging)
+        {
+            // 传完：收起提示，面板恢复原样（「发送到」/ 右键菜单发送不经过 Root_Drop，要在这里复原）
             DropOverlay.Visibility = Visibility.Collapsed;
+            Body.Opacity = 1;
+        }
         Refresh();
     }
 
@@ -146,25 +151,18 @@ public sealed partial class PanelWindow : Window
     void Refresh()
     {
         bool connected = _link.IsConnected;
-        bool paired = PairedStore.All().Count > 0;
+        // 和 Mac 端一样：标题只放状态或手机名，副标题只放连上后的电量，不另加说明
         TitleText.Text = _link.State switch
         {
-            LinkState.Connected => _link.StateDetail,
-            LinkState.Connecting => "正在连接…",
+            LinkState.Connected => ShortName(_link.StateDetail),
+            LinkState.Connecting => "正在连接",
             LinkState.NeedsPairing => "待配对",
             LinkState.Paused => "已暂停",
             _ => "手机未连接",
         };
         SubtitleText.Text = connected && _link.Info is { Battery: { } battery } info
             ? $"{battery}%{(info.Charging == true ? " · 充电中" : "")}"
-            : _link.State switch
-            {
-                LinkState.Retrying when _link.PhoneAppDown => "手机上的 ColorLink 没在运行",
-                LinkState.Retrying => "正在重连…",
-                LinkState.NeedsPairing => $"发现「{_link.StateDetail}」",
-                LinkState.Paused => "电脑锁屏或睡眠中",
-                _ => "",
-            };
+            : "";
         SubtitleText.Visibility = SubtitleText.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         PhoneGlyph.Foreground = connected
             ? (Brush)Application.Current.Resources["ConnectedBrush"]
@@ -173,22 +171,20 @@ public sealed partial class PanelWindow : Window
         DndButton.Visibility = GalleryButton.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
         var dnd = _link.Dnd;
         DndButton.IsEnabled = dnd is not null;
-        ToolTipService.SetToolTip(DndButton, dnd is null ? "免打扰：需要手机开通知使用权" : dnd.Value.IsOn() ? $"免打扰：{dnd.Value.Title()}（点按关闭）" : "免打扰（点按开启）");
+        ToolTipService.SetToolTip(DndButton, dnd is null ? "需要手机开通知使用权" : dnd.Value.IsOn() ? $"免打扰：{dnd.Value.Title()}" : "免打扰");
         if (dnd?.IsOn() == true) DndButton.Style = (Style)Application.Current.Resources["AccentCircleButton"];
         else DndButton.Style = (Style)Application.Current.Resources["CircleButton"];
 
         Strip.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
         for (int i = 0; i < _tiles.Length; i++) _tiles[i].Item = i < _link.Recent.Count ? _link.Recent[i] : null;
+    }
 
-        Offline.Visibility = connected ? Visibility.Collapsed : Visibility.Visible;
-        OfflineText.Text = !paired
-            ? "在手机上打开 ColorLink，然后在这里输入手机上显示的 6 位配对码。"
-            : _link.State == LinkState.Paused ? "解锁后自动重新连接。"
-            : "手机和电脑要在同一个 Wi-Fi（或电脑连着手机热点）。手机醒来时会自动连上。";
-        PairButton.Visibility = paired && _link.State != LinkState.NeedsPairing ? Visibility.Collapsed : Visibility.Visible;
-
-        EventText.Text = _link.LastEvent ?? "";
-        EventText.Visibility = EventText.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    /// <summary>面板很窄：去掉品牌前缀和版本后缀，「OPPO Find X9 Ultra 卫星通信版」→「Find X9 Ultra」</summary>
+    internal static string ShortName(string name)
+    {
+        var s = Regex.Replace(name.Trim(), @"^(OPPO|OnePlus|realme)\s+", "", RegexOptions.IgnoreCase);
+        s = Regex.Replace(s, @"\s+\S*版$", "");
+        return s.Length > 0 ? s : name;
     }
 
     async void Dnd_Click(object sender, RoutedEventArgs e) => await _link.ToggleDndAsync();
@@ -197,12 +193,6 @@ public sealed partial class PanelWindow : Window
     {
         HidePanel();
         App.Current!.ShowGallery();
-    }
-
-    void Pair_Click(object sender, RoutedEventArgs e)
-    {
-        HidePanel();
-        App.Current!.ShowPair();
     }
 
     void MoreMenu_Opening(object? sender, object e)

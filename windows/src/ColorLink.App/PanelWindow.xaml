@@ -52,17 +52,6 @@
                     </Grid.ColumnDefinitions>
                 </Grid>
             </Border>
-
-            <!-- 没连上 / 没配对时的说明 -->
-            <StackPanel x:Name="Offline" Spacing="8" Visibility="Collapsed">
-                <TextBlock x:Name="OfflineText" TextWrapping="Wrap" Style="{StaticResource CaptionTextBlockStyle}"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <Button x:Name="PairButton" Content="配对手机…" Style="{StaticResource AccentButtonStyle}"
-                        HorizontalAlignment="Stretch" Click="Pair_Click" />
-            </StackPanel>
-
-            <TextBlock x:Name="EventText" Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
-                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
         </StackPanel>
 
         <!-- 拖文件进来时盖满整个面板 -->
