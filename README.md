@@ -19,7 +19,8 @@ ColorLink/
 ├── tools/          make-icons.swift 绘制图标，生成安卓资源和 Mac 图标的链环图层
 ├── android/        手机端（Kotlin，无第三方依赖）
 ├── mac/            Mac 状态栏 App（AppKit + SwiftUI）+ 命令行联调工具 clcheck
-└── mock/           模拟手机（Python 标准库），没有手机时调试 Mac 端用
+├── windows/        Windows 托盘 App（WinUI 3）+ 命令行联调工具 clcheck，见 windows/README.md
+└── mock/           模拟手机（Python），没有手机时调试电脑端用（Windows 上需 pip install pillow zeroconf cryptography）
 ```
 
 ## 原理

@@ -16,7 +16,9 @@
 
 模拟“锁屏后 mDNS 收不到”：加 --no-mdns，此时 Mac 只能靠敲门或上次的地址找到手机。
 
-只用 Python 标准库；缩略图用 macOS 自带的 sips / qlmanage 生成，证书用自带的 openssl 生成。
+在 macOS 上只用 Python 标准库：缩略图用自带的 sips / qlmanage 生成，证书用自带的 openssl 生成，mDNS 用 dns-sd。
+在 Windows 上（调试 Windows 端时）没有这些命令，改用 pip 包：pip install pillow zeroconf cryptography
+（缩略图用 Pillow，视频缩略图有 ffmpeg 就截一帧、没有就画个占位图；证书用 cryptography；mDNS 用 zeroconf）。
 """
 
 import argparse
@@ -46,7 +48,50 @@ VIDEO_EXT = {".mov", ".mp4", ".m4v"}
 AUDIO_EXT = {".m4a", ".mp3", ".wav", ".aac", ".aiff", ".caf"}
 EXTRA_MIME = {".heic": "image/heic", ".aiff": "audio/aiff", ".caf": "audio/x-caf", ".m4a": "audio/mp4"}
 
-DEFAULT_DIRS = ["/System/Library/Desktop Pictures", "/System/Library/Sounds"]
+if sys.platform == "win32":
+    DEFAULT_DIRS = [os.path.expandvars(r"%WINDIR%\Web"), os.path.expandvars(r"%WINDIR%\Media")]
+else:
+    DEFAULT_DIRS = ["/System/Library/Desktop Pictures", "/System/Library/Sounds"]
+
+HAS_SIPS = shutil.which("sips") is not None
+
+
+def pil_jpeg(src, out, size, fmt="JPEG"):
+    """没有 sips 时（Windows）用 Pillow 缩放、转格式。成功返回 True"""
+    try:
+        from PIL import Image, ImageOps
+        with Image.open(src) as im:
+            im = ImageOps.exif_transpose(im)
+            im.thumbnail((size, size))
+            im = im.convert("RGB")
+            if fmt == "JPEG":
+                im.save(out, "JPEG", quality=80)
+            else:
+                im.save(out, fmt)
+        return True
+    except Exception as e:  # noqa: BLE001  缩略图生成不了就当没有
+        print(f"[mock] Pillow 处理 {os.path.basename(src)} 失败：{e}", flush=True)
+        return False
+
+
+def video_frame(src, out, size):
+    """没有 qlmanage 时：有 ffmpeg 就截第一秒的一帧，否则画一张深色占位图"""
+    if shutil.which("ffmpeg"):
+        r = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", "1", "-i", src, "-frames:v", "1",
+                            "-vf", f"scale={size}:{size}:force_original_aspect_ratio=decrease", out],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if r.returncode == 0 and os.path.exists(out):
+            return True
+    try:
+        from PIL import Image, ImageDraw
+        im = Image.new("RGB", (size, size * 9 // 16), (40, 40, 48))
+        d = ImageDraw.Draw(im)
+        w, h = im.size
+        d.polygon([(w * 0.42, h * 0.3), (w * 0.42, h * 0.7), (w * 0.62, h * 0.5)], fill=(230, 230, 235))
+        im.save(out, "JPEG", quality=80)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
 
 DEVICE_ID = "mock-oppo-0001"
 DEVICE_NAME = "OPPO Find X8（模拟）"
@@ -136,6 +181,13 @@ class Library:
         with lk, self.thumb_slots:
             if not os.path.exists(out):
                 tmp = out + ".tmp.jpg"
+                if not HAS_SIPS:
+                    ok = pil_jpeg(path, tmp, size) if kind == "image" else video_frame(path, tmp, size)
+                    if not ok or not os.path.exists(tmp):
+                        return None
+                    os.replace(tmp, out)
+                    with open(out, "rb") as f:
+                        return f.read()
                 if kind == "image":
                     src = path
                 else:
@@ -532,16 +584,59 @@ def make_screenshot():
     os.makedirs(shots, exist_ok=True)
     name = time.strftime("Screenshot_%Y-%m-%d-%H-%M-%S") + f"-{random.randint(10, 99)}.png"
     out = os.path.join(shots, name)
-    subprocess.run(["sips", "-s", "format", "png", "-Z", "1600", src, "--out", out],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if HAS_SIPS:
+        subprocess.run(["sips", "-s", "format", "png", "-Z", "1600", src, "--out", out],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        pil_jpeg(src, out, 1600, fmt="PNG")
     if not os.path.exists(out):
         return None
     return STATE.library.add(out, added=time.time())
 
 
+def make_cert_with_cryptography(cert, key):
+    """Windows 上没有 openssl 命令时，用 cryptography 包生成同样的自签名证书"""
+    import datetime
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+    k = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "ColorLink-Mock")])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    c = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(k.public_key())
+         .serial_number(x509.random_serial_number()).not_valid_before(now - datetime.timedelta(days=1))
+         .not_valid_after(now + datetime.timedelta(days=3650)).sign(k, hashes.SHA256()))
+    with open(key, "wb") as f:
+        f.write(k.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL,
+                                serialization.NoEncryption()))
+    with open(cert, "wb") as f:
+        f.write(c.public_bytes(serialization.Encoding.PEM))
+
+
+def register_zeroconf(port):
+    """没有 dns-sd 命令时（Windows）用 zeroconf 包广播 _colorlink._tcp"""
+    from zeroconf import ServiceInfo, Zeroconf
+    ips = sorted({a[4][0] for a in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)
+                  if not a[4][0].startswith("127.")}) or ["127.0.0.1"]
+    info = ServiceInfo("_colorlink._tcp.local.", "ColorLink-Mock._colorlink._tcp.local.",
+                       addresses=[socket.inet_aton(ip) for ip in ips], port=port,
+                       properties={"id": DEVICE_ID, "name": "Mock"}, server="colorlink-mock.local.")
+    zc = Zeroconf()
+    zc.register_service(info)
+
+    def stop():
+        zc.unregister_service(info)
+        zc.close()
+    atexit.register(stop)
+    print(f"[mock] mDNS（zeroconf）已广播：{', '.join(ips)}", flush=True)
+
+
 def tls_context(data_dir):
     """和真手机一样用自签名证书；存在数据目录里，重启模拟手机后指纹不变，Mac 不用重新配对"""
     cert, key = os.path.join(data_dir, "tls-cert.pem"), os.path.join(data_dir, "tls-key.pem")
+    if not os.path.exists(cert) and not shutil.which("openssl"):
+        make_cert_with_cryptography(cert, key)
     if not os.path.exists(cert):
         subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "3650",
                         "-subj", "/CN=ColorLink-Mock", "-keyout", key, "-out", cert],
@@ -582,7 +677,9 @@ def main():
     server.daemon_threads = True
     server.socket = tls_context(args.data).wrap_socket(server.socket, server_side=True, do_handshake_on_connect=False)
 
-    if not args.no_mdns:
+    if not args.no_mdns and not shutil.which("dns-sd"):
+        register_zeroconf(args.port)
+    elif not args.no_mdns:
         # macOS 自带 dns-sd，用它代替安卓的 NsdManager 广播服务
         p = subprocess.Popen(["dns-sd", "-R", "ColorLink-Mock", "_colorlink._tcp", "local", str(args.port),
                               f"id={DEVICE_ID}", "name=Mock"],
