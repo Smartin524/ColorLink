@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Windows 11 右键菜单第一级的「发送到手机」：进程外 COM 服务（IExplorerCommand）。
+    资源管理器右键时按需启动它（Embedding 参数），点菜单后把文件交给 ColorLink.exe 的 send 参数。
+    和 ColorLink.exe 发布在同一个文件夹，共用同一份 .NET 运行库。
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <AssemblyName>ColorLinkShell</AssemblyName>
+    <RootNamespace>ColorLink.Shell</RootNamespace>
+    <ApplicationIcon>..\ColorLink.App\Assets\ColorLink.ico</ApplicationIcon>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+</Project>

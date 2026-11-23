@@ -83,6 +83,9 @@ public partial class App : Application
             _ => "ColorLink：手机未连接",
         };
         _tray?.SetState(Link.IsConnected, tip);
+        // 沙盒调试时不动正式的右键菜单
+        if (Environment.GetEnvironmentVariable("COLORLINK_DATA") is not { Length: > 0 })
+            MenuPhoneName.Update(Link.Device?.Name ?? PairedStore.All().FirstOrDefault()?.Name);
     }
 
     /// <summary>托盘右键菜单和面板「⋯」菜单共用</summary>

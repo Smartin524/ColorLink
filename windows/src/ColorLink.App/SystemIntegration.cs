@@ -119,3 +119,29 @@ sealed class SessionWatcher : IDisposable
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
     }
 }
+
+/// <summary>
+/// 右键菜单（ColorLinkShell）的标题「发送到 手机名」：把缩短后的手机名写到程序目录的 phone-name.txt。
+/// 菜单程序带包标识运行，AppData 和 HKCU 都是包私有的视图，只有程序目录（包的外部位置）两边看到的是同一份。
+/// </summary>
+static class MenuPhoneName
+{
+    static string FilePath => Path.Combine(AppContext.BaseDirectory, "phone-name.txt");
+    static string? _last = "";
+
+    public static void Update(string? fullName)
+    {
+        var name = fullName is { Length: > 0 } ? PanelWindow.ShortName(fullName) : null;
+        if (name == _last) return;
+        _last = name;
+        try
+        {
+            if (name is null) File.Delete(FilePath);
+            else File.WriteAllText(FilePath, name);
+        }
+        catch (Exception e)
+        {
+            AppLog.Write($"写右键菜单手机名失败：{e.Message}");
+        }
+    }
+}

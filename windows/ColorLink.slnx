@@ -1,9 +1,10 @@
-<Solution>
+﻿<Solution>
   <Folder Name="/src/">
     <Project Path="src/ColorLink.App/ColorLink.App.csproj">
       <Platform Project="x64" />
     </Project>
     <Project Path="src/ColorLink.Core/ColorLink.Core.csproj" />
+    <Project Path="src/ColorLink.Shell/ColorLink.Shell.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ColorLink.Core.Tests/ColorLink.Core.Tests.csproj" />

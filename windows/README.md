@@ -10,8 +10,10 @@
 windows/
 ├── src/ColorLink.Core      与界面无关：协议客户端、证书固定、敲门、mDNS、相册同步、连接状态机（对应 Mac 的 ColorLinkCore + LinkController）
 ├── src/ColorLink.App       WinUI 3 托盘程序
+├── src/ColorLink.Shell     Windows 11 右键菜单第一级的「发送到 手机名」（进程外 COM，IExplorerCommand）
 ├── tools/clcheck           命令行联调工具（对应 Mac 的 clcheck）
 ├── tools/make-icons.py     生成应用图标和托盘单色图标
+├── tools/context-menu.ps1  右键菜单：打稀疏包、自签名、注册（清单和图标在 tools/context-menu/）
 └── tests/                  单元测试（验证码识别、敲门签名、事件解析、文件名清理）
 ```
 
@@ -19,8 +21,8 @@ windows/
 
 | Mac | Windows |
 |---|---|
-| 状态栏图标 + 液态玻璃面板 | 托盘图标（左键面板、右键菜单）+ Acrylic 面板，任务栏深浅色自动换图标 |
-| 拖文件时面板自动弹出 | 拖到面板或相册窗口；资源管理器右键 **「发送到 → ColorLink 手机」**；菜单里「发送文件到手机…」 |
+| 状态栏图标 + 液态玻璃面板 | 托盘图标（左键面板、右键菜单）+ Acrylic 面板；连上是彩色链环，断开是跟任务栏深浅色走的淡色链环 |
+| 拖文件时面板自动弹出 | 拖到面板或相册窗口；资源管理器右键第一级 **「发送到 手机名」**（需装右键菜单，见下文）或 **「发送到 → ColorLink 手机」**；菜单里「发送文件到手机…」 |
 | Bonjour（NWBrowser） | Zeroconf 定时查询（没找到 4 秒一次，找到后 20 秒一次；网络变化时立刻查） |
 | URLSession + 证书指纹 | HttpClient（SocketsHttpHandler）+ 同样的 SHA-256 指纹固定 |
 | AVPlayer + 本机转发 | MediaPlayerElement + 同样的 127.0.0.1 转发（随机路径） |
@@ -53,6 +55,21 @@ dotnet build src/ColorLink.App
 ```powershell
 dotnet publish src/ColorLink.App -c Release -r win-x64 -o publish
 ```
+
+### Windows 11 右键菜单（第一级）
+
+Windows 11 只给有包标识的程序在右键菜单第一级显示菜单项，所以另外注册一个只含清单的稀疏包（程序文件还是安装目录里那份），用自签名证书签名：
+
+```powershell
+dotnet publish src/ColorLink.App -c Release -r win-x64 -o "$env:LOCALAPPDATA\Programs\ColorLink"
+.\tools\context-menu.ps1
+```
+
+第一次运行会在「当前用户\个人」里建证书 `CN=ColorLink Dev`，并提示用**管理员** PowerShell 把导出的 `.cer` 导入「本地计算机\受信任的人」，导入后再运行一次脚本。`.\tools\context-menu.ps1 -Uninstall` 去掉菜单。
+
+- 菜单标题用手机名：ColorLink 把缩短后的名字写在程序目录的 `phone-name.txt`。菜单程序带包标识运行，AppData 和 HKCU 是包私有的视图，读不到 ColorLink 的数据，只有程序目录两边看到的是同一份。
+- 点菜单后，ColorLinkShell 用 breakaway 方式启动 `ColorLink.exe --send`，让它跑在包环境外面，才能把文件转给正在运行的 ColorLink。
+- 安装目录换了要重新运行脚本（注册时记下了外部位置）。
 
 启动参数：`--background`（开机自启用，不弹窗）、`--send 文件…`（「发送到」用）。程序只运行一份，再次启动会把参数交给正在运行的那份。
 
@@ -106,4 +123,3 @@ dotnet test windows/tests/ColorLink.Core.Tests
 - 拖文件到托盘图标时面板不会自动弹出（Windows 不给通知区域图标发拖拽消息），改用「发送到」菜单和拖到面板 / 相册窗口。
 - 相册里没有恢复 EXIF 拍摄日期（Mac 端的 `ImageCaptureDate`），旧照片没有拍摄时间时按修改时间分组。
 - 按住空格快速预览（Mac 的 Quick Look）还没做，双击用系统「照片」打开原图。
-- 手机端的文案还写着「Mac」（例如分享菜单「发送到 Mac」），功能不受影响，以后可以改成「电脑」。
