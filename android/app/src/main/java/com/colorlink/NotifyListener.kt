@@ -86,9 +86,9 @@ class NotifyListener : NotificationListenerService() {
 
         private fun condition(state: Int): Condition =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-                Condition(DND_RULE_URI, "Mac 远程开关", state, Condition.SOURCE_USER_ACTION)
+                Condition(DND_RULE_URI, "电脑远程开关", state, Condition.SOURCE_USER_ACTION)
             } else {
-                Condition(DND_RULE_URI, "Mac 远程开关", state)
+                Condition(DND_RULE_URI, "电脑远程开关", state)
             }
 
         private val DND_RULE_URI = Uri.parse("colorlink://dnd")

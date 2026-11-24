@@ -71,10 +71,10 @@ class ShareActivity : Activity() {
     /** to：只发给这台电脑；null 发给所有连着的 */
     private fun send(files: List<SharedFiles.Entry>, requested: Int, text: String?, to: String?) {
         if (!waitForMac()) {
-            done("Mac 未连接")
+            done("电脑未连接")
             return
         }
-        val where = to ?: "Mac"
+        val where = to ?: "电脑"
         val msg = if (files.isNotEmpty()) {
             EventBus.publish("shared", JSONObject().put("items", JSONArray(files.map { it.json })), to)
             AppLog.i(TAG, "分享 ${files.size} 个文件到 ${to ?: "所有电脑"}")
@@ -98,7 +98,7 @@ class ShareActivity : Activity() {
     private fun waitForMac(): Boolean {
         if (!Prefs.connectionEnabled(this)) return false
         if (EventBus.count > 0) return true
-        main.post { Toast.makeText(applicationContext, "正在连接 Mac…", Toast.LENGTH_SHORT).show() }
+        main.post { Toast.makeText(applicationContext, "正在连接电脑…", Toast.LENGTH_SHORT).show() }
         LinkCore.knockSoon(force = true)
         val deadline = SystemClock.elapsedRealtime() + 5_000
         while (SystemClock.elapsedRealtime() < deadline) {

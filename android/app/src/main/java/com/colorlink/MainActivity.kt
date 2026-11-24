@@ -383,7 +383,7 @@ class MainActivity : Activity() {
 
     private fun connectionCard() = card(padding = 0).apply {
         connectionSwitch = brandSwitch().apply {
-            contentDescription = "连接 Mac"
+            contentDescription = "连接电脑"
             isChecked = Prefs.connectionEnabled(context)
             setOnCheckedChangeListener { _, on ->
                 if (on != Prefs.connectionEnabled(this@MainActivity)) {
@@ -392,7 +392,7 @@ class MainActivity : Activity() {
                 }
             }
         }
-        addView(row("连接 Mac", trailing = connectionSwitch) { connectionSwitch.toggle() })
+        addView(row("连接电脑", trailing = connectionSwitch) { connectionSwitch.toggle() })
     }
 
     private fun settingsCard() = card(padding = 0).apply {
@@ -415,7 +415,7 @@ class MainActivity : Activity() {
         addView(separator())
         addView(row("配对新电脑", titleColor = accent) {
             if (!Prefs.connectionEnabled(this@MainActivity)) {
-                toast("请先打开连接 Mac")
+                toast("请先打开「连接电脑」")
                 return@row
             }
             showCode = !showCode

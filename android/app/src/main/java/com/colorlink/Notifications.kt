@@ -35,7 +35,7 @@ object Notifications {
         nm.createNotificationChannel(
             // 实况通知（流体云）要求重要性高于 MIN；用 DEFAULT 但不响不振，避免再弹一条横幅
             NotificationChannel(CH_CONNECTED, "已连接电脑（流体云）", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "连上 Mac 时显示，断开后自动消失"
+                description = "连上电脑时显示，断开后自动消失"
                 setSound(null, null)
                 enableVibration(false)
                 setShowBadge(false)
@@ -43,13 +43,13 @@ object Notifications {
         )
         nm.createNotificationChannel(
             NotificationChannel(CH_LINKED, "已连接电脑（常驻）", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "连着 Mac 期间一直显示，断开后自动消失"
+                description = "连着电脑期间一直显示，断开后自动消失"
                 setShowBadge(false)
             },
         )
         nm.createNotificationChannel(
             NotificationChannel(CH_RECEIVED, "收到的文件", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "Mac 发来图片或文件时提醒"
+                description = "电脑发来图片或文件时提醒"
             },
         )
     }
