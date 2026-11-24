@@ -76,12 +76,18 @@
             android:taskAffinity=""
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- 分享菜单里的两个入口：发给 Mac、发给 Windows 电脑（Magic），都由 ShareActivity 处理 -->
         <activity
             android:name=".ShareActivity"
             android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <activity-alias
+            android:name=".ShareToMac"
             android:exported="true"
-            android:label="@string/share_label"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            android:label="@string/share_mac"
+            android:targetActivity=".ShareActivity">
             <!-- 文字、图片、任意文件，一个或多个 -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -89,7 +95,20 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="*/*" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".ShareToMagic"
+            android:exported="true"
+            android:label="@string/share_magic"
+            android:targetActivity=".ShareActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity-alias>
 
         <!-- 控制中心状态磁贴：系统打开面板时绑定，关闭后解除监听。 -->
         <service

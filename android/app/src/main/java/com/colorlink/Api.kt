@@ -202,10 +202,12 @@ class Api(
         // 记下电脑的地址，手机下次醒来时直接给它敲门
         val addr = req.remote
         if (addr is java.net.Inet4Address && !addr.isLoopbackAddress) addr.hostAddress?.let { Prefs.setLastMac(ctx, it) }
-        return eventStream(name, addr)
+        // macOS 的网络库发的 User-Agent 带 Darwin；Windows 那台不带
+        val mac = req.header("user-agent")?.contains("Darwin") == true
+        return eventStream(name, addr, mac)
     }
 
-    private fun eventStream(name: String, address: java.net.InetAddress?) = Response(
+    private fun eventStream(name: String, address: java.net.InetAddress?, mac: Boolean) = Response(
         200,
         mutableMapOf(
             "Content-Type" to "text/event-stream; charset=utf-8",
@@ -214,7 +216,7 @@ class Api(
             "X-Content-Type-Options" to "nosniff",
         ),
         Response.Body.Streaming { out ->
-            val sub = EventBus.subscribe(name, address)
+            val sub = EventBus.subscribe(name, address, mac)
             val q = sub.queue
             try {
                 out.write("event: hello\ndata: ${info()}\n\n".toByteArray())

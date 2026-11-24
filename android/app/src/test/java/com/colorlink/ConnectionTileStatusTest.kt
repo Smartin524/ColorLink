@@ -43,14 +43,14 @@ class ConnectionTileStatusTest {
         val macB = java.net.InetAddress.getByName("192.168.1.20")
         val a1 = EventBus.subscribe("MacBook", macA)
         val a2 = EventBus.subscribe("MacBook", macA) // 同一台电脑的第二个连接
-        val b = EventBus.subscribe("iMac", macB)
+        val b = EventBus.subscribe("Magic", macB, mac = false)
         try {
-            assertEquals(listOf("MacBook", "iMac"), EventBus.computers().map { it.name })
+            assertEquals(listOf("MacBook", "Magic"), EventBus.computers().map { it.name })
             assertEquals("192.168.1.20", EventBus.computers()[1].address)
-            assertEquals("iMac", EventBus.nameFor(macB))
+            assertEquals("Magic", EventBus.nameFor(macB))
             assertEquals(null, EventBus.nameFor(java.net.InetAddress.getByName("192.168.1.30")))
-            // 只发给 iMac
-            EventBus.publish("clipboard", org.json.JSONObject(), to = "iMac")
+            // 只发给 Magic（不是 Mac 的那台）
+            EventBus.publish("clipboard", org.json.JSONObject(), toMac = false)
             assertEquals(0, a1.queue.size)
             assertEquals(1, b.queue.size)
             // 不指定就都发

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ColorLink</string>
-    <string name="share_label">发送到电脑</string>
+    <string name="share_mac">发送到 Mac</string>
+    <string name="share_magic">发送到 Magic</string>
     <string name="pair_code">%1$s %2$s</string>
 </resources>

@@ -10,12 +10,13 @@ import java.util.concurrent.LinkedBlockingQueue
  * 带着电脑的名字（事件流请求里的 name）和地址，可以连着好几台，界面上分开显示。
  */
 object EventBus {
-    class Subscriber(val name: String, val address: InetAddress?, val since: Long) {
+    /** mac：是不是 Mac（按请求的 User-Agent 认：macOS 的网络库会带上 Darwin）；不是 Mac 的就是 Windows 那台 */
+    class Subscriber(val name: String, val address: InetAddress?, val since: Long, val mac: Boolean) {
         val queue = LinkedBlockingQueue<String>(256)
     }
 
     /** 一台已连接的电脑：同名的几个连接算一台 */
-    data class Computer(val name: String, val address: String?, val since: Long)
+    data class Computer(val name: String, val address: String?, val since: Long, val mac: Boolean)
 
     private val subscribers = CopyOnWriteArrayList<Subscriber>()
 
@@ -37,15 +38,15 @@ object EventBus {
 
     /** 已连接的电脑，按连上的先后排 */
     fun computers(): List<Computer> = subscribers.groupBy { it.name }
-        .map { (name, subs) -> subs.minBy { it.since }.let { Computer(name, it.address?.hostAddress, it.since) } }
+        .map { (name, subs) -> subs.minBy { it.since }.let { Computer(name, it.address?.hostAddress, it.since, it.mac) } }
         .sortedBy { it.since }
 
     /** 这个地址上连着的电脑叫什么（收文件、删照片时标出是哪台电脑） */
     fun nameFor(address: InetAddress?): String? =
         address?.let { a -> subscribers.firstOrNull { it.address == a }?.name }
 
-    fun subscribe(name: String, address: InetAddress?): Subscriber {
-        val s = Subscriber(name, address, System.currentTimeMillis())
+    fun subscribe(name: String, address: InetAddress?, mac: Boolean = true): Subscriber {
+        val s = Subscriber(name, address, System.currentTimeMillis(), mac)
         subscribers.add(s)
         connectionChanged()
         return s
@@ -61,10 +62,10 @@ object EventBus {
      */
     fun ping() = subscribers.forEach { it.queue.offer(": ping\n\n") }
 
-    /** to：只发给这台电脑（分享时选了电脑）；null 发给所有 */
-    fun publish(event: String, data: JSONObject, to: String? = null) {
+    /** toMac：true 只发给 Mac，false 只发给不是 Mac 的（分享菜单选了入口）；null 发给所有 */
+    fun publish(event: String, data: JSONObject, toMac: Boolean? = null) {
         // JSONObject.toString() 不含换行，正好是一行 SSE data
         val msg = "event: $event\ndata: $data\n\n"
-        subscribers.forEach { if (to == null || it.name == to) it.queue.offer(msg) }
+        subscribers.forEach { if (toMac == null || it.mac == toMac) it.queue.offer(msg) }
     }
 }
